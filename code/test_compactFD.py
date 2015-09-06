@@ -4,21 +4,21 @@ from numpy.testing import *
 from mpi4py import MPI
 import matplotlib.pyplot as plt
 
-def get_3d_function_and_derivs(x, y, z):
+def get_3d_function_and_derivs_1(x, y, z):
     f = z*y*np.sin(x) + z*x*np.sin(y) + x*y*np.sin(z)
     dfdx = z*y*np.cos(x) + z*np.sin(y) + y*np.sin(z)
     dfdy = z*np.sin(x) + z*x*np.cos(y) + x*np.sin(z)
     dfdz = y*np.sin(x) + x*np.sin(y) + x*y*np.cos(z)
     return f, dfdx, dfdy, dfdz
 
-def get_3d_function_and_derivs2(x, y, z):
+def get_3d_function_and_derivs_2(x, y, z):
     f = z*y*np.sin(x) + z*x*np.cos(y) + x*y*np.sin(z)
     dfdx = z*y*np.cos(x) + z*np.cos(y) + y*np.sin(z)
     dfdy = z*np.sin(x) - z*x*np.sin(y) + x*np.sin(z)
     dfdz = y*np.sin(x) + x*np.cos(y) + x*y*np.cos(z)
     return f, dfdx, dfdy, dfdz
 
-def get_3d_function_and_derivs3(x, y, z):
+def get_3d_function_and_derivs_3(x, y, z):
     f = np.sin(y)
     dfdx = 0.
     dfdy = np.cos(y)
@@ -37,7 +37,7 @@ def test_compactFD_dfdx():
         x_range = np.linspace(0, 2*np.pi, N)
         x, y, z = np.meshgrid(x_range, x_range, x_range, indexing='ij')
         x, y, z = x.transpose().copy(), y.transpose().copy(), z.transpose().copy()
-        f, dfdx_true, _, _ = get_3d_function_and_derivs2(x, y, z)
+        f, dfdx_true, _, _ = get_3d_function_and_derivs_2(x, y, z)
     else:
         f, dfdx_true = None, None
 
@@ -51,7 +51,7 @@ def test_compactFD_dfdx():
         plt.savefig('dfdx.png')
         plt.close()
         print np.mean(abs(dfdx-dfdx_true)/abs(np.max(dfdx_true)))
-        print 'Plot of solution at z=N/2, y=N/2 saved to file..'
+        print 'Plot of solution at z=N/2, y=N/2 saved to file.'
 
 def test_compactFD_dfdy():
     comm = MPI.COMM_WORLD
@@ -65,7 +65,7 @@ def test_compactFD_dfdy():
         x_range = np.linspace(0, 2*np.pi, N)
         x, y, z = np.meshgrid(x_range, x_range, x_range, indexing='ij')
         x, y, z = x.transpose().copy(), y.transpose().copy(), z.transpose().copy()
-        f, dfdx_true, dfdy_true, _ = get_3d_function_and_derivs2(x, y, z)
+        f, dfdx_true, dfdy_true, _ = get_3d_function_and_derivs_2(x, y, z)
     else:
         f, dfdx_true, dfdy_true = None, None, None
 
@@ -79,7 +79,7 @@ def test_compactFD_dfdy():
         plt.savefig('dfdy.png')
         plt.close()
         print np.mean(abs(dfdy-dfdy_true)/abs(np.max(dfdy_true)))
-        print 'Plot of solution at x=N/2, z=N/2 saved to file..'
+        print 'Plot of solution at x=N/2, z=N/2 saved to file.'
 
 def test_compactFD_dfdz():
     comm = MPI.COMM_WORLD
@@ -93,7 +93,7 @@ def test_compactFD_dfdz():
         x_range = np.linspace(0, 2*np.pi, N)
         x, y, z = np.meshgrid(x_range, x_range, x_range, indexing='ij')
         x, y, z = x.transpose().copy(), y.transpose().copy(), z.transpose().copy()
-        f, dfdx_true, dfdy_true, dfdz_true = get_3d_function_and_derivs2(x, y, z)
+        f, dfdx_true, dfdy_true, dfdz_true = get_3d_function_and_derivs_2(x, y, z)
     else:
         f, dfdx_true, dfdy_true, dfdz_true = None, None, None, None
 
@@ -107,7 +107,7 @@ def test_compactFD_dfdz():
         plt.savefig('dfdz.png')
         plt.close()
         print np.mean(abs(dfdz-dfdz_true)/abs(np.max(dfdz_true)))
-        print 'Plot of solution at z=N/2 saved to file..'
+        print 'Plot of solution at x=N/2, y=N/2 saved to file.'
 
 if __name__ == "__main__":
     test_compactFD_dfdx()

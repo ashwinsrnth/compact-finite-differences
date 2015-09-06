@@ -73,7 +73,7 @@ def dfdx(comm, f, dx):
     x_R = np.zeros([nz, ny, nx], dtype=np.float64)
     for i in range(nz):
         for j in range(ny):
-            x_R[i,j,:] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d_local[i,j,:])
+            x_R[i, j, :] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d_local[i, j, :])
     comm.Barrier()
 
     #---------------------------------------------------------------------------
@@ -133,9 +133,9 @@ def dfdx(comm, f, dx):
         c_reduced[0::2] = x_LH_global[0::2]
         c_reduced[1::2] = -1.
 
-        a_reduced[0::2*npx], c_reduced[0::2*npx], d_reduced[:,:,0::2*npx] = 0.0, 0.0, 0.0
+        a_reduced[0::2*npx], c_reduced[0::2*npx], d_reduced[:, :, 0::2*npx] = 0.0, 0.0, 0.0
         b_reduced[0::2*npx] = 1.0
-        a_reduced[-1::-2*npx], c_reduced[-1::-2*npx], d_reduced[:,:,-1::-2*npx] = 0.0, 0.0, 0.0
+        a_reduced[-1::-2*npx], c_reduced[-1::-2*npx], d_reduced[:, :, -1::-2*npx] = 0.0, 0.0, 0.0
         b_reduced[-1::-2*npx] = 1.0
 
         a_reduced[1::2*npx] = 0.
@@ -162,8 +162,8 @@ def dfdx(comm, f, dx):
     comm.Scatterv([params, np.ones(size, dtype=int), displacements, subarray],
         [params_local, MPI.DOUBLE])
 
-    alpha = params_local[:,:,0]
-    beta = params_local[:,:,1]
+    alpha = params_local[:, :, 0]
+    beta = params_local[:, :, 1]
 
     # note the broadcasting below!
     comm.Barrier()
@@ -292,9 +292,9 @@ def dfdy(comm, f, dy):
         c_reduced[0::2] = x_LH_global[0::2]
         c_reduced[1::2] = -1.
 
-        a_reduced[0::2*npy], c_reduced[0::2*npy], d_reduced[:,:,0::2*npy] = 0.0, 0.0, 0.0
+        a_reduced[0::2*npy], c_reduced[0::2*npy], d_reduced[:, :, 0::2*npy] = 0.0, 0.0, 0.0
         b_reduced[0::2*npy] = 1.0
-        a_reduced[-1::-2*npy], c_reduced[-1::-2*npy], d_reduced[:,:,-1::-2*npy] = 0.0, 0.0, 0.0
+        a_reduced[-1::-2*npy], c_reduced[-1::-2*npy], d_reduced[:, :, -1::-2*npy] = 0.0, 0.0, 0.0
         b_reduced[-1::-2*npy] = 1.0
 
         a_reduced[1::2*npy] = 0.
@@ -321,8 +321,8 @@ def dfdy(comm, f, dy):
     comm.Scatterv([params, np.ones(size, dtype=int), displacements, subarray],
         [params_local, MPI.DOUBLE])
 
-    alpha = params_local[:,:,0]
-    beta = params_local[:,:,1]
+    alpha = params_local[:, :, 0]
+    beta = params_local[:, :, 1]
 
     # note the broadcasting below!
     comm.Barrier()
@@ -391,7 +391,7 @@ def dfdz(comm, f, dz):
     x_R = np.zeros([ny, nx, nz], dtype=np.float64)
     for i in range(ny):
         for j in range(nx):
-            x_R[i,j,:] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d_local[:,i,j])
+            x_R[i,j,:] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d_local[:, i, j])
     comm.Barrier()
 
     #---------------------------------------------------------------------------
@@ -451,9 +451,9 @@ def dfdz(comm, f, dz):
         c_reduced[0::2] = x_LH_global[0::2]
         c_reduced[1::2] = -1.
 
-        a_reduced[0::2*npz], c_reduced[0::2*npz], d_reduced[:,:,0::2*npz] = 0.0, 0.0, 0.0
+        a_reduced[0::2*npz], c_reduced[0::2*npz], d_reduced[:, :, 0::2*npz] = 0.0, 0.0, 0.0
         b_reduced[0::2*npz] = 1.0
-        a_reduced[-1::-2*npz], c_reduced[-1::-2*npz], d_reduced[:,:,-1::-2*npz] = 0.0, 0.0, 0.0
+        a_reduced[-1::-2*npz], c_reduced[-1::-2*npz], d_reduced[: , :, -1::-2*npz] = 0.0, 0.0, 0.0
         b_reduced[-1::-2*npz] = 1.0
 
         a_reduced[1::2*npz] = 0.
@@ -462,7 +462,7 @@ def dfdz(comm, f, dz):
         params = np.zeros([ny, nx, 2*size])
         for i in range(ny):
             for j in range(nx):
-                params[i,j,:] = scipy_solve_banded(a_reduced, b_reduced, c_reduced, -d_reduced[i,j,:])
+                params[i, j, :] = scipy_solve_banded(a_reduced, b_reduced, c_reduced, -d_reduced[i, j, :])
 
         np.testing.assert_allclose(params[:, :, 0::2*npz], 0)
         np.testing.assert_allclose(params[:, :, -1::-2*npz], 0)
@@ -480,8 +480,8 @@ def dfdz(comm, f, dz):
     comm.Scatterv([params, np.ones(size, dtype=int), displacements, subarray],
         [params_local, MPI.DOUBLE])
 
-    alpha = params_local[:,:,0]
-    beta = params_local[:,:,1]
+    alpha = params_local[:, :, 0]
+    beta = params_local[:, :, 1]
 
     #if rank == 13:
     #   np.testing.assert_allclose(alpha, beta)
