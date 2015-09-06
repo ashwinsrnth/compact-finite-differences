@@ -18,6 +18,12 @@ def get_3d_function_and_derivs2(x, y, z):
     dfdz = y*np.sin(x) + x*np.cos(y) + x*y*np.cos(z)
     return f, dfdx, dfdy, dfdz
 
+def get_3d_function_and_derivs3(x, y, z):
+    f = np.sin(y)
+    dfdx = 0.
+    dfdy = np.cos(y)
+    dfdz = 0.
+    return f, dfdx, dfdy, dfdz
 
 def test_compactFD_dfdx():
     comm = MPI.COMM_WORLD
@@ -75,6 +81,35 @@ def test_compactFD_dfdy():
         print np.mean(abs(dfdy-dfdy_true)/abs(np.max(dfdy_true)))
         print 'Plot of solution at x=N/2, z=N/2 saved to file..'
 
+def test_compactFD_dfdz():
+    comm = MPI.COMM_WORLD
+    size = comm.Get_size()
+    assert size==27
+    comm = comm.Create_cart([3, 3, 3])
+    rank = comm.Get_rank()
+    N = 36
+
+    if rank == 0:
+        x_range = np.linspace(0, 2*np.pi, N)
+        x, y, z = np.meshgrid(x_range, x_range, x_range, indexing='ij')
+        x, y, z = x.transpose().copy(), y.transpose().copy(), z.transpose().copy()
+        f, dfdx_true, dfdy_true, dfdz_true = get_3d_function_and_derivs2(x, y, z)
+    else:
+        f, dfdx_true, dfdy_true, dfdz_true = None, None, None, None
+
+    dz = 2*np.pi/(N-1)
+    dfdz = compactFD.dfdz(comm, f, dz)
+
+    if rank == 0:
+        plt.plot(dfdz_true[:, N/2, N/2], linewidth=4, alpha=0.5, label='true')
+        plt.plot(dfdz[:, N/2, N/2], '-', linewidth=2, label='computed')
+        plt.legend()
+        plt.savefig('dfdz.png')
+        plt.close()
+        print np.mean(abs(dfdz-dfdz_true)/abs(np.max(dfdz_true)))
+        print 'Plot of solution at z=N/2 saved to file..'
+
 if __name__ == "__main__":
     test_compactFD_dfdx()
     test_compactFD_dfdy()
+    test_compactFD_dfdz()
