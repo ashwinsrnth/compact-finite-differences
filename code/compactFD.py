@@ -108,20 +108,13 @@ def dfdx(comm, f, dx):
     subarray = subarray_aux.Create_resized(0, 8)
     subarray.Commit()
 
-    start_index = np.array(2*rank, dtype=np.int)
-    sendbuf = [start_index, MPI.INT]
-    displs = np.zeros(size, dtype=np.int)
-    recvbuf = [displs, MPI.INT]
-    comm.Gather(sendbuf, recvbuf, root=0)
-    comm.Barrier()
-
     x_R_faces = np.zeros([nz, ny, 2], dtype=np.float64)
     x_R_faces[:, :, 0] = x_R[:, :, 0].copy()
     x_R_faces[:, :, 1] = x_R[:, :, -1].copy()
 
     comm.Barrier()
     comm.Gatherv([x_R_faces, MPI.DOUBLE],
-        [x_R_global, np.ones(size, dtype=np.int), displs, subarray], root=0)
+        [x_R_global, np.ones(size, dtype=np.int), displacements, subarray], root=0)
 
     #---------------------------------------------------------------------------
     # assemble and solve the reduced matrix to compute the transfer parameters
@@ -166,14 +159,7 @@ def dfdx(comm, f, dx):
 
     params_local = np.zeros([nz, ny, 2], dtype=np.float64)
 
-    start_index = np.array(2*rank, dtype=np.int)
-    sendbuf = [start_index, MPI.INT]
-    displs = np.zeros(size, dtype=np.int)
-    recvbuf = [displs, MPI.INT]
-    comm.Gather(sendbuf, recvbuf, root=0)
-    comm.Barrier()
-
-    comm.Scatterv([params, np.ones(size, dtype=int), displs, subarray],
+    comm.Scatterv([params, np.ones(size, dtype=int), displacements, subarray],
         [params_local, MPI.DOUBLE])
 
     alpha = params_local[:,:,0]
