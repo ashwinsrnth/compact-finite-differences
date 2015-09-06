@@ -19,7 +19,6 @@ def scipy_solve_banded(a, b, c, rhs):
     x = solve_banded(l_and_u, ab, rhs)
     return x
 
-
 def dfdx(comm, f, dx):
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -76,7 +75,6 @@ def dfdx(comm, f, dx):
         for j in range(ny):
             x_R[i,j,:] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d_local[i,j,:])
     comm.Barrier()
-
 
     #---------------------------------------------------------------------------
     # the first and last elements in x_LH and x_UH,
