@@ -2,9 +2,10 @@ from mpi4py import MPI
 import numpy as np
 import time
 
+
 class DA:
 
-    def __init__(self, comm, local_dims, proc_sizes, stencil_width):        
+    def __init__(self, comm, local_dims, proc_sizes, stencil_width):
         self.comm = comm
         self.local_dims = local_dims
         self.proc_sizes = proc_sizes
@@ -14,7 +15,7 @@ class DA:
         assert(isinstance(comm, MPI.Cartcomm))
         assert(self.size == reduce(lambda a,b: a*b, proc_sizes))
         self._create_halo_arrays()
-   
+
     def global_to_local(self, global_array, local_array):
         # Update the local array (which includes ghost points)
         # from the global array (which does not)
@@ -50,7 +51,7 @@ class DA:
         sendbuf = [self.top_send_halo, MPI.DOUBLE]
         recvbuf = [self.bottom_recv_halo, MPI.DOUBLE]
         req3 = self._forward_swap(sendbuf, recvbuf, self.rank-npx, self.rank+npx, yloc, npy, 30)
-       
+
         sendbuf = [self.bottom_send_halo, MPI.DOUBLE]
         recvbuf = [self.top_recv_halo, MPI.DOUBLE]
         req4 = self._backward_swap(sendbuf, recvbuf, self.rank+npx, self.rank-npx, yloc, npy, 40)
@@ -59,7 +60,7 @@ class DA:
         sendbuf = [self.back_send_halo, MPI.DOUBLE]
         recvbuf = [self.front_recv_halo, MPI.DOUBLE]
         req5 = self._forward_swap(sendbuf, recvbuf, self.rank-npx*npy, self.rank+npx*npy, zloc, npz, 50)
-       
+
         sendbuf = [self.front_send_halo, MPI.DOUBLE]
         recvbuf = [self.back_recv_halo, MPI.DOUBLE]
         req6 = self._backward_swap(sendbuf, recvbuf, self.rank+npx*npy, self.rank-npx*npy, zloc, npz, 60)
@@ -76,16 +77,16 @@ class DA:
 
         if self.has_neighbour('bottom'):
             self._copy_halo_to_array(self.bottom_recv_halo, local_array, [nz, sw, nx], [sw, 0, sw])
-        
+
         if self.has_neighbour('top'):
             self._copy_halo_to_array(self.top_recv_halo, local_array, [nz, sw, nx], [sw, 2*sw+ny-1, sw])
 
         if self.has_neighbour('front'):
             self._copy_halo_to_array(self.front_recv_halo, local_array, [sw, ny, nx], [0, sw, sw])
-        
+
         if self.has_neighbour('back'):
             self._copy_halo_to_array(self.back_recv_halo, local_array, [sw, ny, nx], [2*sw+nz-1, sw, sw])
-        
+
     def local_to_global(self, local_array, global_array):
 
         # Update a global array (no ghost values)
@@ -96,9 +97,9 @@ class DA:
 
 
     def _forward_swap(self, sendbuf, recvbuf, src, dest, loc, dimprocs, tag):
-        
+
         # Perform swap in the +x, +y or +z direction
-        req = None        
+        req = None
         if loc > 0 and loc < dimprocs-1:
             self.comm.Isend(sendbuf, dest=dest, tag=tag)
             req = self.comm.Irecv(recvbuf, source=src, tag=tag)
@@ -112,13 +113,13 @@ class DA:
         return req
 
     def _backward_swap(self, sendbuf, recvbuf, src, dest, loc, dimprocs, tag):
-        
+
         # Perform swap in the -x, -y or -z direction
         req = None
         if loc > 0 and loc < dimprocs-1:
             self.comm.Isend(sendbuf, dest=dest, tag=tag)
             req = self.comm.Irecv(recvbuf, source=src, tag=tag)
-        
+
         elif loc == 0 and dimprocs > 1:
             req = self.comm.Irecv(recvbuf, source=src, tag=tag)
 
@@ -142,7 +143,7 @@ class DA:
         self.left_send_halo = self.left_recv_halo.copy()
         self.right_recv_halo = self.left_recv_halo.copy()
         self.right_send_halo = self.left_recv_halo.copy()
-    
+
         self.bottom_recv_halo = np.empty([nz,sw,nx], dtype=np.float64)
         self.bottom_send_halo = self.bottom_recv_halo.copy()
         self.top_recv_halo = self.bottom_recv_halo.copy()
@@ -161,27 +162,27 @@ class DA:
         # array, halo:  gpuarrays involved in the copy.
         # copy_dims: number of elements to copy in (z, y, x) directions
         # copy_offsets: offsets at the source in (z, y, x) directions
-        
-        nz, ny, nx = self.local_dims 
+
+        nz, ny, nx = self.local_dims
         d, h, w  = copy_dims
         z_offs, y_offs, x_offs = copy_offsets
-               
+
         halo[...] = array[z_offs:z_offs+d, y_offs:y_offs+h, x_offs:x_offs+w]
 
     def _copy_halo_to_array(self, halo, array, copy_dims, copy_offsets, dtype=np.float64):
-        
+
         # copy from 2-d halo to 3-d array
         #
         # Parameters:
         # halo, array:  gpuarrays involved in the copy
         # copy_dims: number of elements to copy in (z, y, x) directions
         # copy_offsets: offsets at the destination in (z, y, x) directions
-        
+
         nz, ny, nx = self.local_dims
         sw = self.stencil_width
         d, h, w = copy_dims
         z_offs, y_offs, x_offs = copy_offsets
-       
+
         array[z_offs:z_offs+d, y_offs:y_offs+h, x_offs:x_offs+w] = halo
 
 
@@ -189,34 +190,34 @@ class DA:
 
         nz, ny, nx = self.local_dims
         sw = self.stencil_width
-      
+
         local_array[sw:-sw, sw:-sw, sw:-sw] = global_array
 
     def _copy_local_to_global(self, local_array, global_array, dtype=np.float64):
 
         nz, ny, nx = self.local_dims
         sw = self.stencil_width
-        
+
         global_array[...] = local_array[sw:-sw, sw:-sw, sw:-sw]
 
     def has_neighbour(self, side):
-        
+
         # Check that the processor has a
         # neighbour on a specified side
         # side can be 'left', 'right', 'top' or 'bottom'
-        
+
         npz, npy, npx = self.comm.Get_topo()[0]
         mz, my, mx = self.comm.Get_topo()[2]
-        
+
         if side == 'left' and mx > 0:
             return True
-        
+
         elif side == 'right' and mx < npx-1:
             return True
 
         elif side == 'bottom' and my > 0:
             return True
-        
+
         elif side == 'top' and my < npy-1:
             return True
 

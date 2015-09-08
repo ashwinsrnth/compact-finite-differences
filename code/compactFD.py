@@ -2,6 +2,7 @@ import tools
 from mpi4py import MPI
 import numpy as np
 from scipy.linalg import solve_banded
+import mpiDA
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
@@ -24,27 +25,21 @@ def dfdx(comm, f, dx):
     size = comm.Get_size()
     npz, npy, npx = comm.Get_topo()[0]
     mz, my, mx = comm.Get_topo()[2]
-    if rank == 0:
-        NZ, NY, NX = f.shape
-    else:
-        NZ, NY, NX = None, None, None
-    NZ = comm.bcast(NZ)
-    NY = comm.bcast(NY)
-    NX = comm.bcast(NX)
-    nz, ny, nx = NZ/npz, NY/npy, NX/npx
+    nz, ny, nx = f.shape
+    NZ, NY, NX = nz*npz, ny*npy, nx*npx
 
-    if rank == 0:
-        d = np.zeros([NZ, NY, NX], dtype=np.float64)
-        d[:, :, 1:-1] = (3./4)*(f[:, :, 2:] - f[:, :, :-2])/dx
-        d[:, :, 0] = (1./(2*dx))*(-5*f[:,:, 0] + 4*f[:, :, 1] + f[:, :, 2])
+    da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
+
+    f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
+    d = np.zeros([nz, ny, nx], dtype=np.float64)
+
+    da.global_to_local(f, f_local)
+
+    d[:, :, :] = (3./4)*(f_local[1:-1, 1:-1, 2:] - f_local[1:-1, 1:-1, :-2])/dx
+    if mx == 0:
+        d[:, :, 0] = (1./(2*dx))*(-5*f[:, :, 0] + 4*f[:, :, 1] + f[:, :, 2])
+    if mx == npx-1:
         d[:, :, -1] = -(1./(2*dx))*(-5*f[:, :, -1] + 4*f[:, :, -2] + f[:, :, -3])
-    else:
-        d = None
-
-    f_local = np.zeros([nz, ny, nx], dtype=np.float64)
-    d_local = np.zeros([nz, ny, nx], dtype=np.float64)
-    tools.scatter_3D(comm, f, f_local)
-    tools.scatter_3D(comm, d, d_local)
 
     #---------------------------------------------------------------------------
     # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -73,7 +68,7 @@ def dfdx(comm, f, dx):
     x_R = np.zeros([nz, ny, nx], dtype=np.float64)
     for i in range(nz):
         for j in range(ny):
-            x_R[i, j, :] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d_local[i, j, :])
+            x_R[i, j, :] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d[i, j, :])
     comm.Barrier()
 
     #---------------------------------------------------------------------------
@@ -170,40 +165,28 @@ def dfdx(comm, f, dx):
     dfdx_local = x_R + np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
     comm.Barrier()
 
-    if rank == 0:
-        dfdx = np.zeros([NZ, NY, NX], dtype=np.float64)
-    else:
-        dfdx = None
-
-    tools.gather_3D(comm, dfdx_local, dfdx)
-    return dfdx
+    return dfdx_local
 
 def dfdy(comm, f, dy):
     rank = comm.Get_rank()
     size = comm.Get_size()
     npz, npy, npx = comm.Get_topo()[0]
     mz, my, mx = comm.Get_topo()[2]
-    if rank == 0:
-        NZ, NY, NX = f.shape
-    else:
-        NZ, NY, NX = None, None, None
-    NZ = comm.bcast(NZ)
-    NY = comm.bcast(NY)
-    NX = comm.bcast(NX)
-    nz, ny, nx = NZ/npz, NY/npy, NX/npx
+    nz, ny, nx = f.shape
+    NZ, NY, NX = nz*npz, ny*npy, nx*npx
 
-    if rank == 0:
-        d = np.zeros([NZ, NY, NX], dtype=np.float64)
-        d[:, 1:-1, :] = (3./4)*(f[:, 2:, :] - f[:, :-2, :])/dy
+    da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
+
+    f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
+    d = np.zeros([nz, ny, nx], dtype=np.float64)
+
+    da.global_to_local(f, f_local)
+
+    d[:, :, :] = (3./4)*(f_local[1:-1, 2:, 1:-1] - f_local[1:-1, :-2, 1:-1])/dy
+    if my == 0:
         d[:, 0, :] = (1./(2*dy))*(-5*f[:, 0, :] + 4*f[:, 1, :] + f[:, 2, :])
+    if my == npy-1:
         d[:, -1, :] = -(1./(2*dy))*(-5*f[:, -1, :] + 4*f[:, -2, :] + f[:, -3, :])
-    else:
-        d = None
-
-    f_local = np.zeros([nz, ny, nx], dtype=np.float64)
-    d_local = np.zeros([nz, ny, nx], dtype=np.float64)
-    tools.scatter_3D(comm, f, f_local)
-    tools.scatter_3D(comm, d, d_local)
 
     #---------------------------------------------------------------------------
     # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -232,7 +215,7 @@ def dfdy(comm, f, dy):
     x_R = np.zeros([nz, nx, ny], dtype=np.float64)
     for i in range(nz):
         for j in range(nx):
-            x_R[i,j,:] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d_local[i,:,j])
+            x_R[i,j,:] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d[i,:,j])
     comm.Barrier()
 
     #---------------------------------------------------------------------------
@@ -329,40 +312,28 @@ def dfdy(comm, f, dy):
     dfdy_local = x_R.transpose(0, 2, 1) + np.einsum('ij,k->ikj', alpha, x_UH_line) + np.einsum('ij,k->ikj', beta, x_LH_line)
     comm.Barrier()
 
-    if rank == 0:
-        dfdy = np.zeros([NZ, NY, NX], dtype=np.float64)
-    else:
-        dfdy = None
-
-    tools.gather_3D(comm, dfdy_local, dfdy)
-    return dfdy
+    return dfdy_local
 
 def dfdz(comm, f, dz):
     rank = comm.Get_rank()
     size = comm.Get_size()
     npz, npy, npx = comm.Get_topo()[0]
     mz, my, mx = comm.Get_topo()[2]
-    if rank == 0:
-        NZ, NY, NX = f.shape
-    else:
-        NZ, NY, NX = None, None, None
-    NZ = comm.bcast(NZ)
-    NY = comm.bcast(NY)
-    NX = comm.bcast(NX)
-    nz, ny, nx = NZ/npz, NY/npy, NX/npx
+    nz, ny, nx = f.shape
+    NZ, NY, NX = nz*npz, ny*npy, nx*npx
 
-    if rank == 0:
-        d = np.zeros([NX, NZ, NY], dtype=np.float64)
-        d[1:-1, :, :] = (3./4)*(f[2:, :, :] - f[:-2, :, :])/dz
-        d[0, :, :] = (1./(2*dz))*(-5*f[0, :, :] + 4*f[1, :, :] + f[2, :, :])
+    da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
+
+    f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
+    d = np.zeros([nz, ny, nx], dtype=np.float64)
+
+    da.global_to_local(f, f_local)
+
+    d[:, :, :] = (3./4)*(f_local[2:, 1:-1, 1:-1] - f_local[:-2, 1:-1, 1:-1])/dz
+    if mz == 0:
+        d[0, : :] = (1./(2*dz))*(-5*f[0, :, :] + 4*f[1, :, :] + f[2, :, :])
+    if mz == npz-1:
         d[-1, :, :] = -(1./(2*dz))*(-5*f[-1, :, :] + 4*f[-2, :, :] + f[-3, :, :])
-    else:
-        d = None
-
-    f_local = np.zeros([nz, ny, nx], dtype=np.float64)
-    d_local = np.zeros([nz, ny, nx], dtype=np.float64)
-    tools.scatter_3D(comm, f, f_local)
-    tools.scatter_3D(comm, d, d_local)
 
     #---------------------------------------------------------------------------
     # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -391,7 +362,7 @@ def dfdz(comm, f, dz):
     x_R = np.zeros([ny, nx, nz], dtype=np.float64)
     for i in range(ny):
         for j in range(nx):
-            x_R[i,j,:] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d_local[:, i, j])
+            x_R[i,j,:] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d[:, i, j])
     comm.Barrier()
 
     #---------------------------------------------------------------------------
@@ -483,18 +454,8 @@ def dfdz(comm, f, dz):
     alpha = params_local[:, :, 0]
     beta = params_local[:, :, 1]
 
-    #if rank == 13:
-    #   np.testing.assert_allclose(alpha, beta)
-
-    # note the broadcasting below!
     comm.Barrier()
     dfdz_local = x_R.transpose(2, 0, 1).copy() + np.einsum('ij,k->kij', alpha, x_UH_line) + np.einsum('ij,k->kij', beta, x_LH_line)
     comm.Barrier()
 
-    if rank == 0:
-        dfdz = np.zeros([NZ, NY, NX], dtype=np.float64)
-    else:
-        dfdz = None
-
-    tools.gather_3D(comm, dfdz_local, dfdz)
-    return dfdz
+    return dfdz_local
