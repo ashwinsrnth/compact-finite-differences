@@ -3,7 +3,6 @@ import numpy as np
 from numpy.testing import *
 from mpi4py import MPI
 import matplotlib.pyplot as plt
-import tools
 
 def get_3d_function_and_derivs_1(x, y, z):
     f = z*y*np.sin(x) + z*x*np.sin(y) + x*y*np.sin(z)
@@ -95,18 +94,6 @@ def test_compactFD_dfdy():
     x_local, y_local, z_local = x_local.transpose().copy(), y_local.transpose().copy(), z_local.transpose().copy()
     f_local, _, dfdy_true_local, _ = get_3d_function_and_derivs_1(x_local, y_local, z_local)
     dfdy_local = compactFD.dfdy(comm, f_local, dy)
-
-
-    if rank == 0:
-        dfdy = np.zeros([NZ, NY, NX], dtype=np.float64)
-    else:
-        dfdy = None
-
-    tools.gather_3D(comm, dfdy_local, dfdy)
-
-    if rank == 0:
-        plt.plot(dfdy[NZ/2, :, NX/2])
-        plt.savefig('temp.png')
 
     print rel_err(dfdy_local, dfdy_true_local), rel_err(dfdy_local, dfdy_true_local, method='mean')
 
