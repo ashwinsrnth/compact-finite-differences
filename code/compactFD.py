@@ -135,7 +135,7 @@ def dfdx(comm, f, dx):
     comm.Barrier()
     t2 = MPI.Wtime()
 
-    if rank == 0: print 'Gathering the data to rank 0'
+    if rank == 0: print 'Gathering the data to rank 0: ', t2-t1
 
     #---------------------------------------------------------------------------
     # assemble and solve the reduced matrix to compute the transfer parameters
