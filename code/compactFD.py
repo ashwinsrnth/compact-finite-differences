@@ -132,8 +132,6 @@ def dfdx(comm, f, dx):
         x_R_global = None
 
     start_z, start_y, start_x = 0, 0, displacements[rank]
-    comm.Barrier()
-    print rank, displacements[rank]
     subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, 2*npx],
                         [nz, ny, 2], [start_z, start_y, start_x])
     subarray = subarray_aux.Create_resized(0, 8)
@@ -154,16 +152,16 @@ def dfdx(comm, f, dx):
     comm.Barrier()
     t2 = MPI.Wtime()
 
-    if rank == 0: print 'Gathering the data to rank 0: ', t2-t1
+    if rank == 0: print 'Gathering the data to the line_root: ', t2-t1
 
     #---------------------------------------------------------------------------
     # assemble and solve the reduced systems at all ranks mx=0
     # to compute the transfer parameters
 
+    comm.Barrier()
+    t1 = MPI.Wtime()
+
     if mx == 0:
-
-        t1 = MPI.Wtime()
-
         a_reduced = np.zeros([2*npx], dtype=np.float64)
         b_reduced = np.zeros([2*npx], dtype=np.float64)
         c_reduced = np.zeros([2*npx], dtype=np.float64)
@@ -185,22 +183,15 @@ def dfdx(comm, f, dx):
         a_reduced[1] = 0.
         c_reduced[-2] = 0.
 
-        t2 = MPI.Wtime()
-        print 'Assembling the system: ', t2-t1
-
-        t1 = MPI.Wtime()
-
         params = tridiagonal.solve_many_small_systems(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*npx)
         params = params.reshape([nz, ny, 2*npx])
-
-        t2 = MPI.Wtime()
-
-        print 'Solving the reduced system: ', t2-t1
-
     else:
         params = None
-
-    comm.Barrier()
+    
+    comm.Barrier()   
+    t2 = MPI.Wtime()
+    
+    print 'Assembling and solving the reduced system: ', t2-t1
 
     #------------------------------------------------------------------------------
     # scatter the parameters back
