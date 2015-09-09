@@ -91,34 +91,50 @@ def dfdx(comm, f, dx):
     #---------------------------------------------------------------------------
     # the first and last elements in x_LH and x_UH,
     # and also the first and last "faces" in x_R,
-    # need to be gathered at rank 0:
+    # need to be gathered at the rank
+    # that is at the beginning of the line (line_root)
+
+    # to avoid a separate communicator for this purpose,
+    # we use Gatherv with lengths and displacements as 0
+    # for all processes not in the line
 
     comm.Barrier()
     t1 = MPI.Wtime()
 
-    if rank == 0:
-        x_LH_global = np.zeros([2*size], dtype=np.float64)
-        x_UH_global = np.zeros([2*size], dtype=np.float64)
+    if mx == 0:
+        x_LH_global = np.zeros([2*npx], dtype=np.float64)
+        x_UH_global = np.zeros([2*npx], dtype=np.float64)
     else:
         x_LH_global = None
         x_UH_global = None
 
-    lengths = np.ones(size)*2
-    displacements = np.arange(0, 2*size, 2)
+    procs_matrix = np.arange(size, dtype=int).reshape([npz, npy, npx])
+    line_root = procs_matrix[mz, my, 0]         # the root procs of this line
+    line_processes = procs_matrix[mz, my, :]    # all procs in this line
+
+    # initialize lengths and displacements to 0
+    lengths = np.zeros(size)
+    displacements = np.zeros(size)
+
+    # only the processes in the line get lengths and displacements
+    lengths[line_processes] = 2
+    displacements[line_processes] = range(0, 2*npx, 2)
 
     comm.Gatherv([np.array([x_LH_line[0], x_LH_line[-1]]), MPI.DOUBLE],
-        [x_LH_global, lengths, displacements, MPI.DOUBLE])
+        [x_LH_global, lengths, displacements, MPI.DOUBLE], root=line_root)
 
     comm.Gatherv([np.array([x_UH_line[0], x_UH_line[-1]]), MPI.DOUBLE],
-        [x_UH_global, lengths, displacements, MPI.DOUBLE])
+        [x_UH_global, lengths, displacements, MPI.DOUBLE], root=line_root)
 
-    if rank == 0:
-        x_R_global = np.zeros([nz, ny, 2*size], dtype=np.float64)
+    if mx == 0:
+        x_R_global = np.zeros([nz, ny, 2*npx], dtype=np.float64)
     else:
         x_R_global = None
 
     start_z, start_y, start_x = 0, 0, displacements[rank]
-    subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, 2*size],
+    comm.Barrier()
+    print rank, displacements[rank]
+    subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, 2*npx],
                         [nz, ny, 2], [start_z, start_y, start_x])
     subarray = subarray_aux.Create_resized(0, 8)
     subarray.Commit()
@@ -129,8 +145,11 @@ def dfdx(comm, f, dx):
 
     comm.Barrier()
 
+    # since we're using a subarray, set lengths to 1:
+    lengths[line_processes] = 1
+
     comm.Gatherv([x_R_faces, MPI.DOUBLE],
-        [x_R_global, np.ones(size, dtype=np.int), displacements, subarray], root=0)
+        [x_R_global, lengths, displacements, subarray], root=line_root)
 
     comm.Barrier()
     t2 = MPI.Wtime()
@@ -138,16 +157,17 @@ def dfdx(comm, f, dx):
     if rank == 0: print 'Gathering the data to rank 0: ', t2-t1
 
     #---------------------------------------------------------------------------
-    # assemble and solve the reduced matrix to compute the transfer parameters
+    # assemble and solve the reduced systems at all ranks mx=0
+    # to compute the transfer parameters
 
-    if rank == 0:
+    if mx == 0:
 
         t1 = MPI.Wtime()
 
-        a_reduced = np.zeros([2*size], dtype=np.float64)
-        b_reduced = np.zeros([2*size], dtype=np.float64)
-        c_reduced = np.zeros([2*size], dtype=np.float64)
-        d_reduced = np.zeros([nz, ny, 2*size], dtype=np.float64)
+        a_reduced = np.zeros([2*npx], dtype=np.float64)
+        b_reduced = np.zeros([2*npx], dtype=np.float64)
+        c_reduced = np.zeros([2*npx], dtype=np.float64)
+        d_reduced = np.zeros([nz, ny, 2*npx], dtype=np.float64)
         d_reduced[...] = x_R_global
 
         a_reduced[0::2] = -1.
@@ -157,28 +177,25 @@ def dfdx(comm, f, dx):
         c_reduced[0::2] = x_LH_global[0::2]
         c_reduced[1::2] = -1.
 
-        a_reduced[0::2*npx], c_reduced[0::2*npx], d_reduced[:, :, 0::2*npx] = 0.0, 0.0, 0.0
-        b_reduced[0::2*npx] = 1.0
-        a_reduced[-1::-2*npx], c_reduced[-1::-2*npx], d_reduced[:, :, -1::-2*npx] = 0.0, 0.0, 0.0
-        b_reduced[-1::-2*npx] = 1.0
+        a_reduced[0], c_reduced[0], d_reduced[:, :, 0] = 0.0, 0.0, 0.0
+        b_reduced[0] = 1.0
+        a_reduced[-1], c_reduced[-1], d_reduced[:, :, -1] = 0.0, 0.0, 0.0
+        b_reduced[-1] = 1.0
 
-        a_reduced[1::2*npx] = 0.
-        c_reduced[-2::-2*npx] = 0.
+        a_reduced[1] = 0.
+        c_reduced[-2] = 0.
 
         t2 = MPI.Wtime()
         print 'Assembling the system: ', t2-t1
 
         t1 = MPI.Wtime()
 
-        params = tridiagonal.solve_many_small_systems(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*size)
-        params = params.reshape([nz, ny, 2*size])
+        params = tridiagonal.solve_many_small_systems(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*npx)
+        params = params.reshape([nz, ny, 2*npx])
 
         t2 = MPI.Wtime()
 
         print 'Solving the reduced system: ', t2-t1
-
-        np.testing.assert_allclose(params[:, :, 0::2*npx], 0)
-        np.testing.assert_allclose(params[:, :, -1::-2*npx], 0)
 
     else:
         params = None
@@ -190,17 +207,16 @@ def dfdx(comm, f, dx):
 
     params_local = np.zeros([nz, ny, 2], dtype=np.float64)
 
-    comm.Scatterv([params, np.ones(size, dtype=int), displacements, subarray],
-        [params_local, MPI.DOUBLE])
+    comm.Scatterv([params, lengths, displacements, subarray],
+        [params_local, MPI.DOUBLE], root=line_root)
 
     alpha = params_local[:, :, 0]
     beta = params_local[:, :, 1]
 
-
-    # note the broadcasting below!
     comm.Barrier()
     t1 = MPI.Wtime()
-
+    
+    # note the broadcasting below!
     dfdx_local = x_R + np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
 
     comm.Barrier()
@@ -438,7 +454,7 @@ def dfdz(comm, f, dz):
     if rank == 0:
         x_R_global = np.zeros([ny, nx, 2*size], dtype=np.float64)
     else:
-        x_R_global = None
+            x_R_global = None
 
     start_z, start_y, start_x = 0, 0, displacements[rank]
     subarray_aux = MPI.DOUBLE.Create_subarray([ny, nx, 2*size],
