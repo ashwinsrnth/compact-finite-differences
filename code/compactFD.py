@@ -20,6 +20,10 @@ def scipy_solve_banded(a, b, c, rhs):
     return x
 
 def dfdx(comm, f, dx):
+
+    comm.Barrier()
+    t_start = MPI.Wtime()
+
     rank = comm.Get_rank()
     size = comm.Get_size()
     npz, npy, npx = comm.Get_topo()[0]
@@ -34,11 +38,19 @@ def dfdx(comm, f, dx):
 
     da.global_to_local(f, f_local)
 
+    comm.Barrier()
+    t1 = MPI.Wtime()
+
     d[:, :, :] = (3./4)*(f_local[1:-1, 1:-1, 2:] - f_local[1:-1, 1:-1, :-2])/dx
     if mx == 0:
         d[:, :, 0] = (1./(2*dx))*(-5*f[:, :, 0] + 4*f[:, :, 1] + f[:, :, 2])
     if mx == npx-1:
         d[:, :, -1] = -(1./(2*dx))*(-5*f[:, :, -1] + 4*f[:, :, -2] + f[:, :, -3])
+    
+    comm.Barrier()
+    t2 = MPI.Wtime()
+       
+    if rank == 0: print 'Time to create RHS: ', t2-t1
 
     #---------------------------------------------------------------------------
     # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -61,6 +73,9 @@ def dfdx(comm, f, dx):
     r_LH_line[-1] = -c_line_local[-1]
     r_UH_line[0] = -a_line_local[0]
 
+    comm.Barrier()
+    t1 = MPI.Wtime()
+
     x_LH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_LH_line)
     x_UH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_UH_line)
 
@@ -68,13 +83,20 @@ def dfdx(comm, f, dx):
     for i in range(nz):
         for j in range(ny):
             x_R[i, j, :] = scipy_solve_banded(a_line_local, b_line_local, c_line_local, d[i, j, :])
+    
     comm.Barrier()
-
+    t2 = MPI.Wtime()
+    
+    if rank == 0: print 'Time to solve the local systems: ', t2-t1
+    
     #---------------------------------------------------------------------------
     # the first and last elements in x_LH and x_UH,
     # and also the first and last "faces" in x_R,
     # need to be gathered at rank 0:
-
+    
+    comm.Barrier()
+    t1 = MPI.Wtime()
+    
     if rank == 0:
         x_LH_global = np.zeros([2*size], dtype=np.float64)
         x_UH_global = np.zeros([2*size], dtype=np.float64)
@@ -107,13 +129,22 @@ def dfdx(comm, f, dx):
     x_R_faces[:, :, 1] = x_R[:, :, -1].copy()
 
     comm.Barrier()
+    
     comm.Gatherv([x_R_faces, MPI.DOUBLE],
         [x_R_global, np.ones(size, dtype=np.int), displacements, subarray], root=0)
+    
+    comm.Barrier()
+    t2 = MPI.Wtime()
+    
+    if rank == 0: print 'Gathering the data to rank 0'
 
     #---------------------------------------------------------------------------
     # assemble and solve the reduced matrix to compute the transfer parameters
 
     if rank == 0:
+        
+        t1 = MPI.Wtime()
+        
         a_reduced = np.zeros([2*size], dtype=np.float64)
         b_reduced = np.zeros([2*size], dtype=np.float64)
         c_reduced = np.zeros([2*size], dtype=np.float64)
@@ -134,12 +165,21 @@ def dfdx(comm, f, dx):
 
         a_reduced[1::2*npx] = 0.
         c_reduced[-2::-2*npx] = 0.
+        
+        t2 = MPI.Wtime()
+        print 'Assembling the system: ', t2-t1
 
+        t1 = MPI.Wtime()
+        
         params = np.zeros([nz, ny, 2*size])
         for i in range(nz):
             for j in range(ny):
                 params[i, j, :] = scipy_solve_banded(a_reduced, b_reduced, c_reduced, -d_reduced[i, j, :])
+        
+        t2 = MPI.Wtime()
 
+        print 'Solving the reduced system: ', t2-t1
+        
         np.testing.assert_allclose(params[:, :, 0::2*npx], 0)
         np.testing.assert_allclose(params[:, :, -1::-2*npx], 0)
 
@@ -159,11 +199,23 @@ def dfdx(comm, f, dx):
     alpha = params_local[:, :, 0]
     beta = params_local[:, :, 1]
 
+
     # note the broadcasting below!
     comm.Barrier()
-    dfdx_local = x_R + np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
-    comm.Barrier()
+    t1 = MPI.Wtime()
 
+    dfdx_local = x_R + np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
+    
+    comm.Barrier()
+    t2 = MPI.Wtime()
+
+    if rank == 0: print 'Computing the sum of solutions: ', t2-t1
+
+    comm.Barrier()
+    t_end = MPI.Wtime()
+    
+    if rank == 0: print 'Total time: ', t_end-t_start
+    
     return dfdx_local
 
 def dfdy(comm, f, dy):
