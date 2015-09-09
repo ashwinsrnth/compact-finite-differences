@@ -191,7 +191,7 @@ def dfdx(comm, f, dx):
     comm.Barrier()   
     t2 = MPI.Wtime()
     
-    print 'Assembling and solving the reduced system: ', t2-t1
+    if rank == 0: print 'Assembling and solving the reduced system: ', t2-t1
 
     #------------------------------------------------------------------------------
     # scatter the parameters back
