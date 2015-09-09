@@ -2,7 +2,7 @@ from mpi4py import MPI
 import numpy as np
 from scipy.linalg import solve_banded
 import mpiDA
-import kernels
+import tridiagonal
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
@@ -80,7 +80,7 @@ def dfdx(comm, f, dx):
     x_LH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_LH_line)
     x_UH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_UH_line)
 
-    x_R = kernels.solve_many_small_systems(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
+    x_R = tridiagonal.solve_many_small_systems(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
     x_R = x_R.reshape([nz, ny, nx])
 
     comm.Barrier()
@@ -170,7 +170,7 @@ def dfdx(comm, f, dx):
 
         t1 = MPI.Wtime()
 
-        params = kernels.solve_many_small_systems(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*size)
+        params = tridiagonal.solve_many_small_systems(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*size)
         params = params.reshape([nz, ny, 2*size])
 
         t2 = MPI.Wtime()
