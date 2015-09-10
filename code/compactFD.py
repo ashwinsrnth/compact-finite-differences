@@ -33,6 +33,7 @@ def dfdx(comm, f, dx):
     NZ, NY, NX = nz*npz, ny*npy, nx*npx
 
     da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
+    batch_solver = tridiagonal.BatchTridiagonalSolver(comm)
 
     f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
     d = np.zeros([nz, ny, nx], dtype=np.float64)
@@ -87,7 +88,7 @@ def dfdx(comm, f, dx):
 
     t1 = MPI.Wtime()
 
-    x_R = tridiagonal.solve_many_small_systems(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
+    x_R = batch_solver.solve(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
     x_R = x_R.reshape([nz, ny, nx])
 
     comm.Barrier()
@@ -190,14 +191,14 @@ def dfdx(comm, f, dx):
         a_reduced[1] = 0.
         c_reduced[-2] = 0.
 
-        params = tridiagonal.solve_many_small_systems(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*npx)
+        params = batch_solver.solve(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*npx)
         params = params.reshape([nz, ny, 2*npx])
     else:
         params = None
-    
-    comm.Barrier()   
+
+    comm.Barrier()
     t2 = MPI.Wtime()
-    
+
     if rank == 0: print 'Assembling and solving the reduced system: ', t2-t1
 
     #------------------------------------------------------------------------------
@@ -213,7 +214,7 @@ def dfdx(comm, f, dx):
 
     comm.Barrier()
     t1 = MPI.Wtime()
-    
+
     # note the broadcasting below!
     dfdx_local = x_R + np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
 
