@@ -80,13 +80,20 @@ def dfdx(comm, f, dx):
     x_LH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_LH_line)
     x_UH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_UH_line)
 
+    comm.Barrier()
+    t2 = MPI.Wtime()
+
+    if rank == 0: print 'Time to solve the UH and LH local systems: ', t2-t1
+
+    t1 = MPI.Wtime()
+
     x_R = tridiagonal.solve_many_small_systems(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
     x_R = x_R.reshape([nz, ny, nx])
 
     comm.Barrier()
     t2 = MPI.Wtime()
 
-    if rank == 0: print 'Time to solve the local systems: ', t2-t1
+    if rank == 0: print 'Time to solve the RHS local system: ', t2-t1
 
     #---------------------------------------------------------------------------
     # the first and last elements in x_LH and x_UH,

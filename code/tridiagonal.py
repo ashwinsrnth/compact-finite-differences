@@ -1,10 +1,13 @@
 import pyopencl as cl
 import numpy as np
+import time
 
 platform = cl.get_platforms()[0]
 device = platform.get_devices()[0]
 ctx = cl.Context([device])
 queue = cl.CommandQueue(ctx)
+
+print device
 
 kernel_text = """
 __kernel void compactTDMA(__global double *a_d,
@@ -48,12 +51,18 @@ __kernel void compactTDMA(__global double *a_d,
 if 'NVIDIA' in platform.name:
     kernel_text = '#pragma OPENCL EXTENSION cl_khr_fp64: enable\n' + kernel_text
     prg = cl.Program(ctx, kernel_text).build(options=['-cl-nv-arch sm_35'])
+   
 else:
     prg = cl.Program(ctx, kernel_text).build(options=['-O2'])
 
 def solve_many_small_systems(a, b, c, d, num_systems, system_size):
 
+
+    t1 = time.time()
     dfdx = np.zeros(num_systems*system_size, dtype=np.float64)
+    t2 = time.time()
+
+    print 'Initial allocation: ', t2-t1
 
     a_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, system_size*8)
     b_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, system_size*8)
@@ -62,18 +71,38 @@ def solve_many_small_systems(a, b, c, d, num_systems, system_size):
     d_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
     dfdx_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
 
-    cl.enqueue_copy(queue, a_g, a)
-    cl.enqueue_copy(queue, b_g, b)
-    cl.enqueue_copy(queue, c_g, c)
-    cl.enqueue_copy(queue, d_g, d)
-    cl.enqueue_copy(queue, c2_g, c)
-    cl.enqueue_copy(queue, dfdx_g, dfdx)
+    t1 = time.time()
+
+    evt1 = cl.enqueue_copy(queue, a_g, a)
+    evt2 = cl.enqueue_copy(queue, b_g, b)
+    evt3 = cl.enqueue_copy(queue, c_g, c)
+    evt4 = cl.enqueue_copy(queue, d_g, d)
+    evt5 = cl.enqueue_copy(queue, c2_g, c)
+    evt6 = cl.enqueue_copy(queue, dfdx_g, dfdx)
+
+    evt1.wait()
+    evt2.wait()
+    evt3.wait()
+    evt4.wait()
+    evt5.wait()
+    evt6.wait()
+
+    t2 = time.time()
+
+    print 'Time for buffer copies: ', t2-t1
+
+    t1 = time.time()
 
     evt = prg.compactTDMA(queue, [num_systems], None,
         a_g, b_g, c_g, d_g, dfdx_g, c2_g,
             np.int32(system_size))
 
     evt.wait()
+
+    t2 = time.time()
+
+    print 'Time for solve: ', t2-t1
+
     evt = cl.enqueue_copy(queue, dfdx, dfdx_g)
     evt.wait()
 
