@@ -1,7 +1,7 @@
 import pyopencl as cl
 import numpy as np
 import time
-from mpi4py import MPI
+
 
 class BatchTridiagonalSolver:
     '''
@@ -9,11 +9,8 @@ class BatchTridiagonalSolver:
     with the same
     left hand side and several right hand sides.
     '''
-    def __init__(self, comm, num_systems, system_size):
+    def __init__(self, comm):
         self.comm = comm
-        self.num_systems = num_systems
-        self.system_size = system_size
-
         self.rank = self.comm.Get_rank()
         self.platform = cl.get_platforms()[0]
         if 'NVIDIA' in self.platform.name:
@@ -22,34 +19,52 @@ class BatchTridiagonalSolver:
             self.device = self.platform.get_devices()[0]
         self.ctx = cl.Context([self.device])
         self.queue = cl.CommandQueue(self.ctx)
-
-        self._allocate()
         self._compile()
 
-    def solve(self, a, b, c, d):
+    def solve(self, a, b, c, d, num_systems, system_size):
         t1 = time.time()
-        dfdx = np.zeros(self.num_systems*self.system_size, dtype=np.float64)
+        dfdx = np.zeros(num_systems*system_size, dtype=np.float64)
         t2 = time.time()
 
-        evt1 = cl.enqueue_copy(self.queue, self.a_g, a)
-        evt2 = cl.enqueue_copy(self.queue, self.b_g, b)
-        evt3 = cl.enqueue_copy(self.queue, self.c_g, c)
-        evt4 = cl.enqueue_copy(self.queue, self.d_g, d)
-        evt5 = cl.enqueue_copy(self.queue, self.c2_g, c)
-        evt6 = cl.enqueue_copy(self.queue, self.dfdx_g, dfdx)
+        print 'Initial allocation: ', t2-t1
 
-        evt1.wait()
-        evt2.wait()
-        evt3.wait()
-        evt4.wait()
-        evt5.wait()
-        evt6.wait()
+        a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
+        b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
+        c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
+        c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
+        d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
+        dfdx_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
 
         t1 = time.time()
 
-        evt = self.prg.compactTDMA(self.queue, [self.num_systems], None,
-            self.a_g, self.b_g, self.c_g, self.d_g, self.dfdx_g, self.c2_g,
-                np.int32(self.system_size))
+        ta = time.time()
+        evt1 = cl.enqueue_copy(self.queue, a_g, a)
+        evt1.wait()
+        evt2 = cl.enqueue_copy(self.queue, b_g, b)
+        evt2.wait()
+        evt3 = cl.enqueue_copy(self.queue, c_g, c)
+        evt3.wait()
+        evt5 = cl.enqueue_copy(self.queue, c2_g, c)
+        evt5.wait()
+        tb = time.time()
+        print 'Time for small buffer copies: ', tb-ta
+       
+        ta = time.time()
+        evt4 = cl.enqueue_copy(self.queue, d_g, d)
+        evt4.wait()
+        tb = time.time()
+
+        print 'Time for large buffer copies: ', tb-ta
+
+        t2 = time.time()
+
+        print 'Time for buffer copies: ', t2-t1
+
+        t1 = time.time()
+
+        evt = self.prg.compactTDMA(self.queue, [num_systems], None,
+            a_g, b_g, c_g, d_g, dfdx_g, c2_g,
+                np.int32(system_size))
 
         evt.wait()
 
@@ -57,18 +72,10 @@ class BatchTridiagonalSolver:
 
         print 'Time for solve: ', t2-t1
 
-        evt = cl.enqueue_copy(self.queue, dfdx, self.dfdx_g)
+        evt = cl.enqueue_copy(self.queue, dfdx, dfdx_g)
         evt.wait()
 
         return dfdx
-
-    def _allocate(self):
-        self.a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, self.system_size*8)
-        self.b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, self.system_size*8)
-        self.c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, self.system_size*8)
-        self.c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, self.system_size*8)
-        self.d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, self.num_systems*self.system_size*8)
-        self.dfdx_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, self.num_systems*self.system_size*8)
 
     def _compile(self):
 

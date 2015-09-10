@@ -21,20 +21,18 @@ def scipy_solve_banded(a, b, c, rhs):
     return x
 
 def dfdx(comm, f, dx):
+    # this is on its way out of the function, don't time it:
+    batch_solver = tridiagonal.BatchTridiagonalSolver(comm)
 
     comm.Barrier()
+    t_start = MPI.Wtime()
+
     rank = comm.Get_rank()
     size = comm.Get_size()
     npz, npy, npx = comm.Get_topo()[0]
     mz, my, mx = comm.Get_topo()[2]
     nz, ny, nx = f.shape
     NZ, NY, NX = nz*npz, ny*npy, nx*npx
-
-    # this is on its way out of the function, don't time it:
-    batch_solver_small = tridiagonal.BatchTridiagonalSolver(comm, nz*ny, 2*npx)
-    batch_solver_large = tridiagonal.BatchTridiagonalSolver(comm, nz*ny, nx)
-
-    t_start = MPI.Wtime()
 
     da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
 
@@ -91,7 +89,7 @@ def dfdx(comm, f, dx):
 
     t1 = MPI.Wtime()
 
-    x_R = batch_solver_large.solve(a_line_local, b_line_local, c_line_local, d)
+    x_R = batch_solver.solve(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
     x_R = x_R.reshape([nz, ny, nx])
 
     comm.Barrier()
@@ -194,7 +192,7 @@ def dfdx(comm, f, dx):
         a_reduced[1] = 0.
         c_reduced[-2] = 0.
 
-        params = batch_solver_small.solve(a_reduced, b_reduced, c_reduced, -d_reduced)
+        params = batch_solver.solve(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*npx)
         params = params.reshape([nz, ny, 2*npx])
     else:
         params = None
