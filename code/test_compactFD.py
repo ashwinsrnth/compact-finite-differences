@@ -2,6 +2,7 @@ import compactFD
 import numpy as np
 from numpy.testing import *
 from mpi4py import MPI
+import pyopencl as cl
 import matplotlib.pyplot as plt
 import tools
 
@@ -38,9 +39,16 @@ def test_compactFD_dfdx():
     size_per_dir = int(size**(1./3))
     comm = comm.Create_cart([size_per_dir, size_per_dir, size_per_dir])
     rank = comm.Get_rank()
+    platform = cl.get_platforms()[0]
+    if 'NVIDIA' in platform.name:
+        device = platform.get_devices()[rank%2]
+    else:
+        device = platform.get_devices()[0]
+    ctx = cl.Context([device])
+    queue = cl.CommandQueue(ctx)
 
     NX = NY = NZ = 144
-    
+
     nx = NX/size_per_dir
     ny = NX/size_per_dir
     nz = NX/size_per_dir
@@ -61,7 +69,9 @@ def test_compactFD_dfdx():
 
     x_local, y_local, z_local = x_local.transpose().copy(), y_local.transpose().copy(), z_local.transpose().copy()
     f_local, dfdx_true_local, _, _ = get_3d_function_and_derivs_1(x_local, y_local, z_local)
-    dfdx_local = compactFD.dfdx(comm, f_local, dx)
+
+
+    dfdx_local = compactFD.dfdx(ctx, queue, comm, f_local, dx)
 
     print rel_err(dfdx_local, dfdx_true_local), rel_err(dfdx_local, dfdx_true_local, method='mean')
 

@@ -3,6 +3,7 @@ import numpy as np
 from scipy.linalg import solve_banded
 import mpiDA
 import tridiagonal
+import kernels
 import pyopencl as cl
 
 def scipy_solve_banded(a, b, c, rhs):
@@ -21,69 +22,11 @@ def scipy_solve_banded(a, b, c, rhs):
     x = solve_banded(l_and_u, ab, rhs)
     return x
 
-def computeRHS(comm, f_local, dx, mx, npx):
+def computeRHS(ctx, queue, comm, f_local, dx, mx, npx):
     '''
     Compute the right hand side for
     the x-derivative
     '''
-
-    kernel_text = """
-        __kernel void computeRHSdfdx(__global double *f_local_d,
-                                __global double *rhs_d,
-                                double dx,
-                                int nx,
-                                int ny,
-                                int nz,
-                                int mx,
-                                int npx)
-        {
-            /*
-            Computes the RHS for solving for the x-derivative
-            of a function f. f_local is the "local" part of
-            the function which includes ghost points.
-
-            dx is the spacing.
-
-            nx, ny, nz define the size of d. f_local is shaped
-            [nz+2, ny+2, nx+2]
-
-            mx and npx together decide if we are evaluating
-            at a boundary.
-            */
-
-            int ix = get_global_id(0);
-            int iy = get_global_id(1);
-            int iz = get_global_id(2);
-
-            int i = iz*(nx*ny) + iy*nx + ix;
-            int iloc = (iz+1)*((nx+2)*(ny+2)) + (iy+1)*(nx+2) + (ix+1);
-
-            rhs_d[i] = (3./(4*dx))*(f_local_d[iloc+1] - f_local_d[iloc-1]);
-
-
-
-            if (mx == 0) {
-                if (ix == 0) {
-                    rhs_d[i] = (1./(2*dx))*(-5*f_local_d[iloc] + 4*f_local_d[iloc+1] + f_local_d[iloc+2]);
-                }
-            }
-
-            if (mx == npx-1) {
-                if (ix == nx-1) {
-                    rhs_d[i] = -(1./(2*dx))*(-5*f_local_d[iloc] + 4*f_local_d[iloc-1] + f_local_d[iloc-2]);
-                }
-            }
-        }
-
-    """
-    rank = comm.Get_rank()
-    platform = cl.get_platforms()[0]
-    if 'NVIDIA' in platform.name:
-        device = platform.get_devices()[rank%2]
-    else:
-        device = platform.get_devices()[0]
-    ctx = cl.Context([device])
-    queue = cl.CommandQueue(ctx)
 
     nz, ny, nx = f_local[1:-1, 1:-1, 1:-1].shape
     d = np.zeros([nz, ny, nx], dtype=np.float64)
@@ -93,11 +36,7 @@ def computeRHS(comm, f_local, dx, mx, npx):
 
     cl.enqueue_copy(queue, f_g, f_local)
 
-    if 'NVIDIA' in platform.name:
-        kernel_text = '#pragma OPENCL EXTENSION cl_khr_fp64: enable\n' + kernel_text
-        prg = cl.Program(ctx, kernel_text).build(options=['-cl-nv-arch sm_35'])
-    else:
-        prg = cl.Program(ctx, kernel_text).build(options=['-O2'])
+    prg = kernels.get_kernels(ctx)
 
     evt = prg.computeRHSdfdx(queue, [nx, ny, nz], None,
         f_g, d_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
@@ -107,13 +46,12 @@ def computeRHS(comm, f_local, dx, mx, npx):
 
     return d
 
-def dfdx(comm, f, dx):
+def dfdx(ctx, queue, comm, f, dx):
+
     # this is on its way out of the function, don't time it:
     batch_solver = tridiagonal.BatchTridiagonalSolver(comm)
 
     comm.Barrier()
-    t_start = MPI.Wtime()
-
     rank = comm.Get_rank()
     size = comm.Get_size()
     npz, npy, npx = comm.Get_topo()[0]
@@ -121,15 +59,20 @@ def dfdx(comm, f, dx):
     nz, ny, nx = f.shape
     NZ, NY, NX = nz*npz, ny*npy, nx*npx
 
+    t_start = MPI.Wtime()
+
+    #---------------------------------------------------------------------------
+    # compute the RHS of the system
+
     da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
-
     f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
-
     da.global_to_local(f, f_local)
 
     comm.Barrier()
     t1 = MPI.Wtime()
-    d = computeRHS(comm, f_local, dx, mx, npx)
+
+    d = computeRHS(ctx, queue, comm, f_local, dx, mx, npx)
+
     comm.Barrier()
     t2 = MPI.Wtime()
 
