@@ -38,7 +38,7 @@ def test_compactFD_dfdx():
     comm = comm.Create_cart([size_per_dir, size_per_dir, size_per_dir])
     rank = comm.Get_rank()
 
-    NX = NY = NZ = 148
+    NX = NY = NZ = 288
 
     nx = NX/size_per_dir
     ny = NX/size_per_dir
@@ -66,4 +66,4 @@ def test_compactFD_dfdx():
 
 if __name__ == "__main__":
     test_compactFD_dfdx()
-    MPI.COMM_WORLD.Barrier()
+
