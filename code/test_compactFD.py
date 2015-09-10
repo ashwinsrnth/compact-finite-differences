@@ -3,6 +3,7 @@ import numpy as np
 from numpy.testing import *
 from mpi4py import MPI
 import matplotlib.pyplot as plt
+import tools
 
 def get_3d_function_and_derivs_1(x, y, z):
     f = z*y*np.sin(x) + z*x*np.sin(y) + x*y*np.sin(z)
@@ -38,8 +39,8 @@ def test_compactFD_dfdx():
     comm = comm.Create_cart([size_per_dir, size_per_dir, size_per_dir])
     rank = comm.Get_rank()
 
-    NX = NY = NZ = 288
-
+    NX = NY = NZ = 144
+    
     nx = NX/size_per_dir
     ny = NX/size_per_dir
     nz = NX/size_per_dir
@@ -64,6 +65,17 @@ def test_compactFD_dfdx():
 
     print rel_err(dfdx_local, dfdx_true_local), rel_err(dfdx_local, dfdx_true_local, method='mean')
 
+    if rank == 0:
+        dfdx = np.zeros([NZ, NY, NX], dtype=np.float64)
+    else:
+        dfdx = None
+
+    tools.gather_3D(comm, dfdx_local, dfdx)
+
+    if rank == 0:
+        plt.plot(dfdx[NZ/2, NY/2, :])
+        plt.savefig('temp.png')
+
+
 if __name__ == "__main__":
     test_compactFD_dfdx()
-
