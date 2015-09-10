@@ -49,7 +49,7 @@ def computeRHS(ctx, queue, comm, f_local, dx, mx, npx):
 def dfdx(ctx, queue, comm, f, dx):
 
     # this is on its way out of the function, don't time it:
-    batch_solver = tridiagonal.BatchTridiagonalSolver(comm)
+    batch_solver = tridiagonal.BatchTridiagonalSolver(ctx, queue, comm)
 
     comm.Barrier()
     rank = comm.Get_rank()

@@ -1,3 +1,43 @@
+
+
+__kernel void compactTDMA(__global double *a_d,
+                                __global double *b_d,
+                                __global double *c_d,
+                                __global double *d_d,
+                                __global double *x_d,
+                                __global double *c2_d,
+                                int block_size)
+{
+    /*
+    Solves many small systems arising from
+    compact finite difference formulation.
+    */
+
+    int gid = get_global_id(0);
+    int block_start = gid*block_size;
+    int block_end = block_start + block_size - 1;
+
+    /* do a serial TDMA on the local system */
+
+    c2_d[0] = c_d[0]/b_d[0]; // we need c2_d, because every thread will overwrite c_d[0] otherwise
+    d_d[block_start] = d_d[block_start]/b_d[0];
+
+    for (int i=1; i<block_size; i++)
+    {
+        c2_d[i] = c_d[i]/(b_d[i] - a_d[i]*c2_d[i-1]);
+        d_d[block_start+i] = (d_d[block_start+i] - a_d[i]*d_d[block_start+i-1])/(b_d[i] - a_d[i]*c2_d[i-1]);
+    }
+
+    x_d[block_end] = d_d[block_end];
+
+    for (int i=block_size-2; i >= 0; i--)
+    {
+        x_d[block_start+i] = d_d[block_start+i] - c2_d[i]*x_d[block_start+i+1];
+    }
+}
+
+
+
 __kernel void computeRHSdfdx(__global double *f_local_d,
                         __global double *rhs_d,
                         double dx,
