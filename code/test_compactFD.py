@@ -38,7 +38,7 @@ def test_compactFD_dfdx():
     comm = comm.Create_cart([size_per_dir, size_per_dir, size_per_dir])
     rank = comm.Get_rank()
 
-    NX = NY = NZ = 36
+    NX = NY = NZ = 148
 
     nx = NX/size_per_dir
     ny = NX/size_per_dir
