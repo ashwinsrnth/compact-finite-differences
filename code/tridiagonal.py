@@ -1,7 +1,7 @@
 import pyopencl as cl
 import numpy as np
 import time
-
+from mpi4py import MPI
 
 class BatchTridiagonalSolver:
     '''
