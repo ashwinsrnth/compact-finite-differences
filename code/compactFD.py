@@ -21,6 +21,8 @@ def scipy_solve_banded(a, b, c, rhs):
     return x
 
 def dfdx(comm, f, dx):
+    # this is on its way out of the function, don't time it:
+    batch_solver = tridiagonal.BatchTridiagonalSolver(comm)
 
     comm.Barrier()
     t_start = MPI.Wtime()
@@ -33,7 +35,6 @@ def dfdx(comm, f, dx):
     NZ, NY, NX = nz*npz, ny*npy, nx*npx
 
     da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
-    batch_solver = tridiagonal.BatchTridiagonalSolver(comm)
 
     f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
     d = np.zeros([nz, ny, nx], dtype=np.float64)
