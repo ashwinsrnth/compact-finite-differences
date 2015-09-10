@@ -20,6 +20,19 @@ def scipy_solve_banded(a, b, c, rhs):
     x = solve_banded(l_and_u, ab, rhs)
     return x
 
+def computeRHS(f_local, dx, mx, npx):
+    '''
+    Compute the right hand side for
+    the x-derivative
+    '''
+    d = np.zeros(f_local[1:-1, 1:-1, 1:-1].shape, dtype=np.float64)
+    d[:, :, :] = (3./4)*(f_local[1:-1, 1:-1, 2:] - f_local[1:-1, 1:-1, :-2])/dx
+    if mx == 0:
+        d[:, :, 0] = (1./(2*dx))*(-5*f_local[1:-1, 1:-1, 1] + 4*f_local[1:-1, 1:-1, 2] + f_local[1:-1, 1:-1, 3])
+    if mx == npx-1:
+        d[:, :, -1] = -(1./(2*dx))*(-5*f_local[1:-1, 1:-1, -2] + 4*f_local[1:-1, 1:-1, -3] + f_local[1:-1, 1:-1, -4])
+    return d
+
 def dfdx(comm, f, dx):
     # this is on its way out of the function, don't time it:
     batch_solver = tridiagonal.BatchTridiagonalSolver(comm)
@@ -37,19 +50,12 @@ def dfdx(comm, f, dx):
     da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
 
     f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
-    d = np.zeros([nz, ny, nx], dtype=np.float64)
 
     da.global_to_local(f, f_local)
 
     comm.Barrier()
     t1 = MPI.Wtime()
-
-    d[:, :, :] = (3./4)*(f_local[1:-1, 1:-1, 2:] - f_local[1:-1, 1:-1, :-2])/dx
-    if mx == 0:
-        d[:, :, 0] = (1./(2*dx))*(-5*f_local[1:-1, 1:-1, 1] + 4*f_local[1:-1, 1:-1, 2] + f_local[1:-1, 1:-1, 3])
-    if mx == npx-1:
-        d[:, :, -1] = -(1./(2*dx))*(-5*f_local[1:-1, 1:-1, -2] + 4*f_local[1:-1, 1:-1, -3] + f_local[1:-1, 1:-1, -4])
-
+    d = computeRHS(f_local, dx, mx, npx)
     comm.Barrier()
     t2 = MPI.Wtime()
 
