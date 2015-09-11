@@ -244,7 +244,9 @@ class CompactFiniteDifferenceSolver:
         alpha = params_local[:, :, 0].copy()
         beta = params_local[:, :, 1].copy()
 
-        # note the broadcasting below
+        # need some space:
+        f_g.release()
+        
         dfdx_local = np.zeros([nz, ny, nx], dtype=np.float64)
         alpha_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*8)
         beta_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*8)
