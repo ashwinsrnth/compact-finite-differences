@@ -290,13 +290,12 @@ class CompactFiniteDifferenceSolver:
         return d
 
     def batch_solver(self, a, b, c, d, num_systems, system_size):
-        dfdx = np.zeros(num_systems*system_size, dtype=np.float64)
+        x = np.zeros(num_systems*system_size, dtype=np.float64)
         a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
         b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
         c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
         c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
         d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
-        dfdx_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
 
         evt1 = cl.enqueue_copy(self.queue, a_g, a)
         evt2 = cl.enqueue_copy(self.queue, b_g, b)
@@ -305,11 +304,11 @@ class CompactFiniteDifferenceSolver:
         evt5 = cl.enqueue_copy(self.queue, c2_g, c)
 
         evt = self.prg.compactTDMA(self.queue, [num_systems], None,
-            a_g, b_g, c_g, d_g, dfdx_g, c2_g,
+            a_g, b_g, c_g, d_g, c2_g,
                 np.int32(system_size))
         evt.wait()
 
-        evt = cl.enqueue_copy(self.queue, dfdx, dfdx_g)
+        evt = cl.enqueue_copy(self.queue, x, d_g)
         evt.wait()
 
-        return dfdx
+        return x

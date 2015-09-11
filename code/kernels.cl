@@ -4,7 +4,6 @@ __kernel void compactTDMA(__global double *a_d,
                                 __global double *b_d,
                                 __global double *c_d,
                                 __global double *d_d,
-                                __global double *x_d,
                                 __global double *c2_d,
                                 int block_size)
 {
@@ -28,11 +27,9 @@ __kernel void compactTDMA(__global double *a_d,
         d_d[block_start+i] = (d_d[block_start+i] - a_d[i]*d_d[block_start+i-1])/(b_d[i] - a_d[i]*c2_d[i-1]);
     }
 
-    x_d[block_end] = d_d[block_end];
-
     for (int i=block_size-2; i >= 0; i--)
     {
-        x_d[block_start+i] = d_d[block_start+i] - c2_d[i]*x_d[block_start+i+1];
+        d_d[block_start+i] = d_d[block_start+i] - c2_d[i]*d_d[block_start+i+1];
     }
 }
 
