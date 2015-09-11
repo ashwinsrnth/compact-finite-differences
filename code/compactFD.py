@@ -49,6 +49,7 @@ class CompactFiniteDifferenceSolver:
         Get the local x-derivative given
         the local portion of f.
         '''
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         rank = self.comm.Get_rank()
         size = self.comm.Get_size()
@@ -66,11 +67,13 @@ class CompactFiniteDifferenceSolver:
 
         self.da.global_to_local(f, self.f_local)
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t1 = MPI.Wtime()
 
         d = self.computeRHS(self.f_local, dx, mx, npx)
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t2 = MPI.Wtime()
 
@@ -97,12 +100,14 @@ class CompactFiniteDifferenceSolver:
         r_LH_line[-1] = -c_line_local[-1]
         r_UH_line[0] = -a_line_local[0]
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t1 = MPI.Wtime()
 
         x_LH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_LH_line)
         x_UH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_UH_line)
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t2 = MPI.Wtime()
 
@@ -113,6 +118,7 @@ class CompactFiniteDifferenceSolver:
         x_R = self.batch_solver(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
         x_R = x_R.reshape([nz, ny, nx])
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t2 = MPI.Wtime()
 
@@ -128,6 +134,7 @@ class CompactFiniteDifferenceSolver:
         # we use Gatherv with lengths and displacements as 0
         # for all processes not in the line
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t1 = MPI.Wtime()
 
@@ -171,6 +178,7 @@ class CompactFiniteDifferenceSolver:
         x_R_faces[:, :, 0] = x_R[:, :, 0].copy()
         x_R_faces[:, :, 1] = x_R[:, :, -1].copy()
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
 
         # since we're using a subarray, set lengths to 1:
@@ -179,6 +187,7 @@ class CompactFiniteDifferenceSolver:
         self.comm.Gatherv([x_R_faces, MPI.DOUBLE],
             [x_R_global, lengths, displacements, subarray], root=line_root)
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t2 = MPI.Wtime()
 
@@ -188,6 +197,7 @@ class CompactFiniteDifferenceSolver:
         # assemble and solve the reduced systems at all ranks mx=0
         # to compute the transfer parameters
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t1 = MPI.Wtime()
 
@@ -218,6 +228,7 @@ class CompactFiniteDifferenceSolver:
         else:
             params = None
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t2 = MPI.Wtime()
 
@@ -234,17 +245,20 @@ class CompactFiniteDifferenceSolver:
         alpha = params_local[:, :, 0]
         beta = params_local[:, :, 1]
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t1 = MPI.Wtime()
 
         # note the broadcasting below!
         dfdx_local = x_R + np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t2 = MPI.Wtime()
 
         if rank == 0: print 'Computing the sum of solutions: ', t2-t1
 
+        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t_end = MPI.Wtime()
 
