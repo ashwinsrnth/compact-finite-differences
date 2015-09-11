@@ -41,7 +41,7 @@ class CompactFiniteDifferenceSolver:
         self.nz, self.ny, self.nx = self.NZ/self.npz, self.NY/self.npy, self.NX/self.npx # local sizes
 
         self.prg = kernels.get_kernels(self.ctx)
-        self.da = mpiDA.DA(self.comm, [self.nz, self.ny, self.nx], [self.npz, self.npy, self.npx], 1)
+        self.da = mpiDA.DA(self.comm.Clone(), [self.nz, self.ny, self.nx], [self.npz, self.npy, self.npx], 1)
 
     def dfdx(self, f, dx):
         '''
@@ -277,7 +277,6 @@ class CompactFiniteDifferenceSolver:
 
     def batch_solver(self, a, b, c, d, num_systems, system_size):
         dfdx = np.zeros(num_systems*system_size, dtype=np.float64)
-
         a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
         b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
         c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
