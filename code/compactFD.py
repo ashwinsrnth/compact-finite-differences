@@ -273,19 +273,38 @@ class CompactFiniteDifferenceSolver:
         the x-derivative
         '''
 
+        t1 = MPI.Wtime()
         nz, ny, nx = f_local[1:-1, 1:-1, 1:-1].shape
         d = np.zeros([nz, ny, nx], dtype=np.float64)
 
         f_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, (nz+2)*(ny+2)*(nx+2)*8)
         d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*nx*8)
+        t2 = MPI.Wtime()
 
-        cl.enqueue_copy(self.queue, f_g, f_local)
+        print 'inside computeRHS: initialization: ', t2-t1
 
+        t1 = MPI.Wtime()
+        evt = cl.enqueue_copy(self.queue, f_g, f_local)
+        evt.wait()
+        t2 = MPI.Wtime()
+
+        print 'inside computeRHS: copying f_local: ', t2-t1
+
+        t1 = MPI.Wtime()
         evt = self.prg.computeRHSdfdx(self.queue, [nx, ny, nz], None,
             f_g, d_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
                 np.int32(mx), np.int32(npx))
+        evt.wait()
+        t2 = MPI.Wtime()
 
-        cl.enqueue_copy(self.queue, d, d_g)
+        print 'inside computeRHS: running kernel: ', t2-t1
+
+        t1 = MPI.Wtime()
+        evt = cl.enqueue_copy(self.queue, d, d_g)
+        evt.wait()
+        t2 = MPI.Wtime()
+
+        print 'inside computeRHS: final copy: ', t2-t1
 
         return d
 
