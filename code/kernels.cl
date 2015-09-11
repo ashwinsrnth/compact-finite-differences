@@ -104,8 +104,8 @@ __kernel void sumSolutionsdfdx(__global double* x_R_d,
     int iz = get_global_id(1);
     int i3d, i2d;
     for (int ix=0; ix<nx; ix++) {
+        i2d = iz*ny + iz;
         i3d = iz*(nx*ny) + iy*nx + ix;
-        i2d = iy*nx + ix;
         x_R_d[i3d] = x_R_d[i3d] + alpha[i2d]*x_UH_d[ix] + beta[i2d]*x_LH_d[ix];
     }
 
