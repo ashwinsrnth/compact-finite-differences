@@ -42,6 +42,14 @@ class CompactFiniteDifferenceSolver:
         self.prg = kernels.get_kernels(self.ctx)
         self.da = mpiDA.DA(self.comm.Clone(), [self.nz, self.ny, self.nx], [self.npz, self.npy, self.npx], 1)
 
+        self.batch_solver_RHS = BatchTridiagonalSolver(self.ctx, self.queue, self.prg) # get prg out of here!
+        self.batch_solver_reduced = BatchTridiagonalSolver(self.ctx, self.queue, self.prg)
+
+        a_line_local = np.ones(self.nx, dtype=np.float64)*(1./4)
+        b_line_local = np.ones(self.nx, dtype=np.float64)
+        c_line_local = np.ones(self.nx, dtype=np.float64)*(1./4)
+        self.batch_solver_RHS.create_buffers(a_line_local, b_line_local, c_line_local, self.nz*self.ny, self.nz)
+
         self.f_local = np.zeros([self.nz+2, self.ny+2, self.nx+2], dtype=np.float64)
 
     def dfdx(self, f, dx):
@@ -115,7 +123,7 @@ class CompactFiniteDifferenceSolver:
 
         t1 = MPI.Wtime()
 
-        x_R = self.batch_solver(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
+        x_R = self.batch_solver_RHS.solve(d, nz*ny, nx)
         x_R = x_R.reshape([nz, ny, nx])
 
         cl.enqueue_barrier(self.queue)
@@ -223,7 +231,8 @@ class CompactFiniteDifferenceSolver:
             a_reduced[1] = 0.
             c_reduced[-2] = 0.
 
-            params = self.batch_solver(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*npx)
+            self.batch_solver_reduced.create_buffers(a_reduced, b_reduced, c_reduced, nz*ny, 2*npx)
+            params = self.batch_solver_reduced.solve(-d_reduced, nz*ny, 2*npx)
             params = params.reshape([nz, ny, 2*npx])
         else:
             params = None
@@ -289,27 +298,35 @@ class CompactFiniteDifferenceSolver:
 
         return d
 
-    def batch_solver(self, a, b, c, d, num_systems, system_size):
-        dfdx = np.zeros(num_systems*system_size, dtype=np.float64)
-        a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
-        b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
-        c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
-        c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
-        d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
-        dfdx_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
+class BatchTridiagonalSolver:
 
-        evt1 = cl.enqueue_copy(self.queue, a_g, a)
-        evt2 = cl.enqueue_copy(self.queue, b_g, b)
-        evt3 = cl.enqueue_copy(self.queue, c_g, c)
-        evt4 = cl.enqueue_copy(self.queue, d_g, d)
-        evt5 = cl.enqueue_copy(self.queue, c2_g, c)
+    def __init__(self, ctx, queue, prg):
+        self.ctx = ctx
+        self.queue = queue
+        self.prg = prg
+
+    def solve(self, d, num_systems, system_size):
+        x = np.zeros(num_systems*system_size, dtype=np.float64)
+        cl.enqueue_copy(self.queue, self.d_g, d)
 
         evt = self.prg.compactTDMA(self.queue, [num_systems], None,
-            a_g, b_g, c_g, d_g, dfdx_g, c2_g,
+            self.a_g, self.b_g, self.c_g, self.d_g, self.x_g, self.c2_g,
                 np.int32(system_size))
         evt.wait()
 
-        evt = cl.enqueue_copy(self.queue, dfdx, dfdx_g)
+        evt = cl.enqueue_copy(self.queue, x, self.x_g)
         evt.wait()
+        return x
 
-        return dfdx
+    def create_buffers(self, a, b, c, num_systems, system_size):
+        self.a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
+        self.b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
+        self.c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
+        self.c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
+        self.d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
+        self.x_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
+
+        evt1 = cl.enqueue_copy(self.queue, self.a_g, a)
+        evt2 = cl.enqueue_copy(self.queue, self.b_g, b)
+        evt3 = cl.enqueue_copy(self.queue, self.c_g, c)
+        evt5 = cl.enqueue_copy(self.queue, self.c2_g, c)
