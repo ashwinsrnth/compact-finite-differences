@@ -50,10 +50,10 @@ def test_compactFD_dfdx():
     NX = NY = NZ = 144
 
     nx = NX/size_per_dir
-    ny = NX/size_per_dir
-    nz = NX/size_per_dir
+    ny = NY/size_per_dir
+    nz = NZ/size_per_dir
 
-    npx, npy, npz = comm.Get_topo()[0]
+    npz, npy, npx = comm.Get_topo()[0]
     mz, my, mx = comm.Get_topo()[2]
 
     dx = 2*np.pi/(NX-1)
@@ -61,13 +61,13 @@ def test_compactFD_dfdx():
     dz = 2*np.pi/(NZ-1)
 
     x_start, y_start, z_start = mx*nx*dx, my*ny*dy, mz*nz*dz
-    x_local, y_local, z_local = np.meshgrid(
-        np.linspace(x_start, x_start + (nx-1)*dx, nx),
-        np.linspace(y_start, y_start + (ny-1)*dy, ny),
+    z_local, y_local, x_local = np.meshgrid(
         np.linspace(z_start, z_start + (nz-1)*dz, nz),
+        np.linspace(y_start, y_start + (ny-1)*dy, ny),
+        np.linspace(x_start, x_start + (nx-1)*dx, nx),
         indexing='ij')
 
-    x_local, y_local, z_local = x_local.transpose().copy(), y_local.transpose().copy(), z_local.transpose().copy()
+    print x_local.shape, (nz, ny, nx)
     f_local, dfdx_true_local, _, _ = get_3d_function_and_derivs_1(x_local, y_local, z_local)
 
     cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))

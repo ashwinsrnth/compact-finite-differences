@@ -38,9 +38,9 @@ def run(prob_size):
 
     NX = NY = NZ = prob_size
 
-    nx = NX/npz
-    ny = NX/npy
-    nz = NX/npx
+    nx = NX/npx
+    ny = NY/npy
+    nz = NZ/npz
 
     mz, my, mx = comm.Get_topo()[2]
 
@@ -57,13 +57,12 @@ def run(prob_size):
     t1 = MPI.Wtime()
 
     x_start, y_start, z_start = mx*nx*dx, my*ny*dy, mz*nz*dz
-    x_local, y_local, z_local = np.meshgrid(
-        np.linspace(x_start, x_start + (nx-1)*dx, nx),
-        np.linspace(y_start, y_start + (ny-1)*dy, ny),
+    z_local, y_local, x_local = np.meshgrid(
         np.linspace(z_start, z_start + (nz-1)*dz, nz),
+        np.linspace(y_start, y_start + (ny-1)*dy, ny),
+        np.linspace(x_start, x_start + (nx-1)*dx, nx),
         indexing='ij')
 
-    x_local, y_local, z_local = x_local.transpose().copy(), y_local.transpose().copy(), z_local.transpose().copy()
     f_local, dfdx_true_local, _, _ = get_3d_function_and_derivs_1(x_local, y_local, z_local)
 
     comm.Barrier()
