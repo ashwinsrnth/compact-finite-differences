@@ -1,8 +1,9 @@
+import mpiDA
+import kernels
+
 from mpi4py import MPI
 import numpy as np
 from scipy.linalg import solve_banded
-import mpiDA
-import kernels
 import pyopencl as cl
 
 def scipy_solve_banded(a, b, c, rhs):
@@ -43,6 +44,7 @@ class CompactFiniteDifferenceSolver:
         self.da = mpiDA.DA(self.comm.Clone(), [self.nz, self.ny, self.nx], [self.npz, self.npy, self.npx], 1)
 
         self.f_local = np.zeros([self.nz+2, self.ny+2, self.nx+2], dtype=np.float64)
+        self.d_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, self.nx*self.ny*self.nz*8)
 
     def dfdx(self, f, dx):
         '''
@@ -66,18 +68,14 @@ class CompactFiniteDifferenceSolver:
         # compute the RHS of the system
 
         self.da.global_to_local(f, self.f_local)
-
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t1 = MPI.Wtime()
-
-        d = self.computeRHS(self.f_local, dx, mx, npx)
-
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t2 = MPI.Wtime()
-
-        if rank == 0: print 'Time to create RHS: ', t2-t1
+        nz, ny, nx = self.f_local[1:-1, 1:-1, 1:-1].shape
+        f_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, (nz+2)*(ny+2)*(nx+2)*8)
+        d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, (nz*ny*nx)*8)
+        evt = cl.enqueue_copy(self.queue, f_g, self.f_local)
+        evt = self.prg.computeRHSdfdx(self.queue, [nx, ny, nz], None,
+            f_g, d_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
+                np.int32(mx), np.int32(npx))
+        evt.wait()
 
         #---------------------------------------------------------------------------
         # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -100,30 +98,25 @@ class CompactFiniteDifferenceSolver:
         r_LH_line[-1] = -c_line_local[-1]
         r_UH_line[0] = -a_line_local[0]
 
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t1 = MPI.Wtime()
-
         x_LH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_LH_line)
         x_UH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_UH_line)
 
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t2 = MPI.Wtime()
+        x_R = np.zeros(nz*ny*nx, dtype=np.float64)
+        a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
+        b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
+        c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
+        c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
+        cl.enqueue_copy(self.queue, a_g, a_line_local)
+        cl.enqueue_copy(self.queue, b_g, b_line_local)
+        cl.enqueue_copy(self.queue, c_g, c_line_local)
+        cl.enqueue_copy(self.queue, c2_g, c_line_local)
+        evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
+            a_g, b_g, c_g, d_g, c2_g,
+                np.int32(nx))
+        evt = cl.enqueue_copy(self.queue, x_R, d_g)
+        evt.wait()
 
-        if rank == 0: print 'Time to solve the UH and LH local systems: ', t2-t1
-
-        t1 = MPI.Wtime()
-
-        x_R = self.batch_solver(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
         x_R = x_R.reshape([nz, ny, nx])
-
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t2 = MPI.Wtime()
-
-        if rank == 0: print 'Time to solve the RHS local system: ', t2-t1
-
         #---------------------------------------------------------------------------
         # the first and last elements in x_LH and x_UH,
         # and also the first and last "faces" in x_R,
@@ -133,10 +126,6 @@ class CompactFiniteDifferenceSolver:
         # to avoid a separate communicator for this purpose,
         # we use Gatherv with lengths and displacements as 0
         # for all processes not in the line
-
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t1 = MPI.Wtime()
 
         if mx == 0:
             x_LH_global = np.zeros([2*npx], dtype=np.float64)
@@ -187,19 +176,9 @@ class CompactFiniteDifferenceSolver:
         self.comm.Gatherv([x_R_faces, MPI.DOUBLE],
             [x_R_global, lengths, displacements, subarray], root=line_root)
 
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t2 = MPI.Wtime()
-
-        if rank == 0: print 'Gathering the data to the line_root: ', t2-t1
-
         #---------------------------------------------------------------------------
         # assemble and solve the reduced systems at all ranks mx=0
         # to compute the transfer parameters
-
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t1 = MPI.Wtime()
 
         if mx == 0:
             a_reduced = np.zeros([2*npx], dtype=np.float64)
@@ -223,16 +202,27 @@ class CompactFiniteDifferenceSolver:
             a_reduced[1] = 0.
             c_reduced[-2] = 0.
 
-            params = self.batch_solver(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*npx)
+            d_reduced_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, 2*nz*ny*npx*8)
+            cl.enqueue_copy(self.queue, d_reduced_g, -d_reduced)
+
+            params = np.zeros(2*npx*nz*ny, dtype=np.float64)
+            a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, 2*npx*8)
+            b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, 2*npx*8)
+            c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, 2*npx*8)
+            c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, 2*npx*8)
+            cl.enqueue_copy(self.queue, a_g, a_reduced)
+            cl.enqueue_copy(self.queue, b_g, b_reduced)
+            cl.enqueue_copy(self.queue, c_g, c_reduced)
+            cl.enqueue_copy(self.queue, c2_g, c_reduced)
+            evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
+                a_g, b_g, c_g, d_reduced_g, c2_g,
+                    np.int32(2*npx))
+            evt = cl.enqueue_copy(self.queue, params, d_reduced_g)
+            evt.wait()
+
             params = params.reshape([nz, ny, 2*npx])
         else:
             params = None
-
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t2 = MPI.Wtime()
-
-        if rank == 0: print 'Assembling and solving the reduced system: ', t2-t1
 
         #------------------------------------------------------------------------------
         # scatter the parameters back
@@ -245,18 +235,8 @@ class CompactFiniteDifferenceSolver:
         alpha = params_local[:, :, 0]
         beta = params_local[:, :, 1]
 
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t1 = MPI.Wtime()
-
         # note the broadcasting below!
         dfdx_local = x_R + np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
-
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-        t2 = MPI.Wtime()
-
-        if rank == 0: print 'Computing the sum of solutions: ', t2-t1
 
         cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
@@ -265,89 +245,3 @@ class CompactFiniteDifferenceSolver:
         if rank == 0: print 'Total time: ', t_end-t_start
 
         return dfdx_local
-
-
-    def computeRHS(self, f_local, dx, mx, npx):
-        '''
-        Compute the right hand side for
-        the x-derivative
-        '''
-
-        t1 = MPI.Wtime()
-        nz, ny, nx = f_local[1:-1, 1:-1, 1:-1].shape
-        d = np.zeros([nz, ny, nx], dtype=np.float64)
-
-        f_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, (nz+2)*(ny+2)*(nx+2)*8)
-        d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*nx*8)
-        t2 = MPI.Wtime()
-
-        print 'inside computeRHS: initialization: ', t2-t1
-
-        t1 = MPI.Wtime()
-        evt = cl.enqueue_copy(self.queue, f_g, f_local)
-        evt.wait()
-        t2 = MPI.Wtime()
-
-        print 'inside computeRHS: copying f_local: ', t2-t1
-
-        t1 = MPI.Wtime()
-        evt = self.prg.computeRHSdfdx(self.queue, [nx, ny, nz], None,
-            f_g, d_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
-                np.int32(mx), np.int32(npx))
-        evt.wait()
-        t2 = MPI.Wtime()
-
-        print 'inside computeRHS: running kernel: ', t2-t1
-
-        t1 = MPI.Wtime()
-        evt = cl.enqueue_copy(self.queue, d, d_g)
-        evt.wait()
-        t2 = MPI.Wtime()
-
-        print 'inside computeRHS: final copy: ', t2-t1
-
-        return d
-
-    def batch_solver(self, a, b, c, d, num_systems, system_size):
-        x = np.zeros(num_systems*system_size, dtype=np.float64)
-        a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
-        b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
-        c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
-        c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
-        d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
-
-        t1 = MPI.Wtime()
-        evt1 = cl.enqueue_copy(self.queue, a_g, a)
-        evt2 = cl.enqueue_copy(self.queue, b_g, b)
-        evt3 = cl.enqueue_copy(self.queue, c_g, c)
-        evt4 = cl.enqueue_copy(self.queue, c2_g, c)
-        cl.wait_for_events([evt1, evt2, evt3, evt4])
-        t2 = MPI.Wtime()
-
-        print 'Small copies: ', t2-t1
-
-        t1 = MPI.Wtime()
-        evt = cl.enqueue_copy(self.queue, d_g, d)
-        evt.wait()
-        t2 = MPI.Wtime()
-
-        print 'Large copy: ', t2-t1
-
-        t1 = MPI.Wtime()
-        evt = self.prg.compactTDMA(self.queue, [num_systems], None,
-            a_g, b_g, c_g, d_g, c2_g,
-                np.int32(system_size))
-        evt.wait()
-        t2 = MPI.Wtime()
-
-        print 'Actual solve: ', t2-t1
-
-
-        t1 = MPI.Wtime()
-        evt = cl.enqueue_copy(self.queue, x, d_g)
-        evt.wait()
-        t2 = MPI.Wtime()
-
-        print 'Final copy: ', t2-t1
-
-        return x
