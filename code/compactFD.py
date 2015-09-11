@@ -2,7 +2,6 @@ from mpi4py import MPI
 import numpy as np
 from scipy.linalg import solve_banded
 import mpiDA
-import tridiagonal
 import kernels
 import pyopencl as cl
 
