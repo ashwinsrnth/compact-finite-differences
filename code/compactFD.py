@@ -104,7 +104,7 @@ class CompactFiniteDifferenceSolver:
 
         x_LH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_LH_line)
         x_UH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_UH_line)
-        
+
         self.comm.Barrier()
         t1 = MPI.Wtime()
         x_R = np.zeros(nz*ny*nx, dtype=np.float64)
@@ -241,16 +241,26 @@ class CompactFiniteDifferenceSolver:
         self.comm.Scatterv([params, lengths, displacements, subarray],
             [params_local, MPI.DOUBLE], root=line_root)
 
-        alpha = params_local[:, :, 0]
-        beta = params_local[:, :, 1]
+        alpha = params_local[:, :, 0].copy()
+        beta = params_local[:, :, 1].copy()
 
-        self.comm.Barrier()
-        t1 = MPI.Wtime()
-        # note the broadcasting below!
-        dfdx_local = x_R + np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
-        self.comm.Barrier()
-        t2 = MPI.Wtime()
-        print 'Summing the solutions: ', t2-t1
+        # note the broadcasting below
+        dfdx_local = np.zeros([nz, ny, nx], dtype=np.float64)
+        alpha_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*8)
+        beta_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*8)
+        x_UH_line_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
+        x_LH_line_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
+
+        cl.enqueue_copy(self.queue, alpha_g, alpha)
+        cl.enqueue_copy(self.queue, beta_g, beta)
+        cl.enqueue_copy(self.queue, x_UH_line_g, x_UH_line)
+        cl.enqueue_copy(self.queue, x_LH_line_g, x_LH_line)
+
+        evt = self.prg.sumSolutionsdfdx(self.queue, [nz*ny], None,
+            d_g, x_UH_line_g, x_LH_line_g, alpha_g, beta_g,
+                np.int32(nx), np.int32(ny), np.int32(nz))
+
+        cl.enqueue_copy(self.queue, dfdx_local, d_g)
 
         cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
