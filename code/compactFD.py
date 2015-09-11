@@ -244,6 +244,8 @@ class CompactFiniteDifferenceSolver:
         alpha = params_local[:, :, 0].copy()
         beta = params_local[:, :, 1].copy()
 
+        self.comm.Barrier()
+        t1 = MPI.Wtime()
         # need some space:
         f_g.release()
         
@@ -263,6 +265,10 @@ class CompactFiniteDifferenceSolver:
                 np.int32(nx), np.int32(ny), np.int32(nz))
 
         cl.enqueue_copy(self.queue, dfdx_local, d_g)
+        self.comm.Barrier()
+        t2 = MPI.Wtime()
+
+        print 'Summing the solutions: ', t2-t1
 
         cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
