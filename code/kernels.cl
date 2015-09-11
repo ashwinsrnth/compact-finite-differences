@@ -82,7 +82,6 @@ __kernel void computeRHSdfdx(__global double *f_local_d,
     }
 }
 
-
 __kernel void sumSolutionsdfdx(__global double* x_R_d,
                             __global double* x_UH_d,
                             __global double* x_LH_d,
@@ -99,14 +98,13 @@ __kernel void sumSolutionsdfdx(__global double* x_R_d,
 
     np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
     */
-
-    int iy = get_global_id(0);
-    int iz = get_global_id(1);
+    int ix = get_global_id(0);
+    int iy = get_global_id(1);
+    int iz = get_global_id(2);
     int i3d, i2d;
-    for (int ix=0; ix<nx; ix++) {
-        i2d = iz*ny + iz;
-        i3d = iz*(nx*ny) + iy*nx + ix;
-        x_R_d[i3d] = x_R_d[i3d] + alpha[i2d]*x_UH_d[ix] + beta[i2d]*x_LH_d[ix];
-    }
 
+    i2d = iz*ny + iy;
+    i3d = iz*(ny*nx) + iy*nx + ix;
+
+    x_R_d[i3d] = x_R_d[i3d] + alpha[i2d]*x_UH_d[ix] + beta[i2d]*x_LH_d[ix];
 }
