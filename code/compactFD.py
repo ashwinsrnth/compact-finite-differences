@@ -54,10 +54,10 @@ class CompactFiniteDifferenceSolver:
         rank = self.comm.Get_rank()
         size = self.comm.Get_size()
 
-        mz, my, mx = self.mx, self.my, self.mz
+        mz, my, mx = self.mz, self.my, self.mx
         NZ, NY, NX = self.NZ, self.NY, self.NX
         nz, ny, nx = self.nz, self.ny, self.nx
-        npz, npy, npx = self.npz, self.npy, self.npz
+        npz, npy, npx = self.npz, self.npy, self.npx
         assert(f.shape == (nz, ny, nx))
 
         t_start = MPI.Wtime()
