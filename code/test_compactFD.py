@@ -1,4 +1,4 @@
-import compactFD
+from compactFD import CompactFiniteDifferenceSolver
 import numpy as np
 from numpy.testing import *
 from mpi4py import MPI
@@ -70,8 +70,8 @@ def test_compactFD_dfdx():
     x_local, y_local, z_local = x_local.transpose().copy(), y_local.transpose().copy(), z_local.transpose().copy()
     f_local, dfdx_true_local, _, _ = get_3d_function_and_derivs_1(x_local, y_local, z_local)
 
-
-    dfdx_local = compactFD.dfdx(ctx, queue, comm, f_local, dx)
+    cfd = CompactFiniteDifferenceSolver(ctx, queue, comm)
+    dfdx_local = cfd.dfdx(f_local, dx)
 
     print rel_err(dfdx_local, dfdx_true_local), rel_err(dfdx_local, dfdx_true_local, method='mean')
 
