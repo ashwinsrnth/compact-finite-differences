@@ -43,6 +43,8 @@ class CompactFiniteDifferenceSolver:
         self.prg = kernels.get_kernels(self.ctx)
         self.da = mpiDA.DA(self.comm.Clone(), [self.nz, self.ny, self.nx], [self.npz, self.npy, self.npx], 1)
 
+        self.f_local = np.zeros([self.nz+2, self.ny+2, self.nx+2], dtype=np.float64)
+
     def dfdx(self, f, dx):
         '''
         Get the local x-derivative given
@@ -63,13 +65,12 @@ class CompactFiniteDifferenceSolver:
         #---------------------------------------------------------------------------
         # compute the RHS of the system
 
-        f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
-        self.da.global_to_local(f, f_local)
+        self.da.global_to_local(f, self.f_local)
 
         self.comm.Barrier()
         t1 = MPI.Wtime()
 
-        d = self.computeRHS(f_local, dx, mx, npx)
+        d = self.computeRHS(self.f_local, dx, mx, npx)
 
         self.comm.Barrier()
         t2 = MPI.Wtime()
