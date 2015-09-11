@@ -70,7 +70,7 @@ def test_compactFD_dfdx():
     x_local, y_local, z_local = x_local.transpose().copy(), y_local.transpose().copy(), z_local.transpose().copy()
     f_local, dfdx_true_local, _, _ = get_3d_function_and_derivs_1(x_local, y_local, z_local)
 
-    cfd = CompactFiniteDifferenceSolver(ctx, queue, comm)
+    cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
     dfdx_local = cfd.dfdx(f_local, dx)
 
     print rel_err(dfdx_local, dfdx_true_local), rel_err(dfdx_local, dfdx_true_local, method='mean')

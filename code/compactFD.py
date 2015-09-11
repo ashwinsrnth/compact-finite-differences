@@ -25,11 +25,22 @@ def scipy_solve_banded(a, b, c, rhs):
 
 class CompactFiniteDifferenceSolver:
 
-    def __init__(self, ctx, queue, comm):
+    def __init__(self, ctx, queue, comm, sizes):
+        '''
+        sizes: tuple/list
+            The global size of the problem [NZ, NY, NX]
+        '''
         self.ctx = ctx
         self.queue = queue
         self.comm = comm
         self.prg = kernels.get_kernels(self.ctx)
+
+        self.NZ, self.NY, self.NX = sizes
+        self.mz, self.my, self.mx = self.comm.Get_topo()[2] # this proc's ID in each direction
+        self.npz, self.npy, self.npx = self.comm.Get_topo()[0] # num procs in each direction
+        self.nz, self.ny, self.nx = self.NZ/self.npz, self.NY/self.npy, self.NX/self.npx # local sizes
+
+        self.batch_solver = tridiagonal.BatchTridiagonalSolver(self.ctx, self.queue, self.comm)
 
 
     def dfdx(self, f, dx):
@@ -37,17 +48,15 @@ class CompactFiniteDifferenceSolver:
         Get the local x-derivative given
         the local portion of f.
         '''
-
-        # this is on its way out of the function, don't time it:
-        batch_solver = tridiagonal.BatchTridiagonalSolver(self.ctx, self.queue, self.comm)
-
         self.comm.Barrier()
         rank = self.comm.Get_rank()
         size = self.comm.Get_size()
-        npz, npy, npx = self.comm.Get_topo()[0]
-        mz, my, mx = self.comm.Get_topo()[2]
-        nz, ny, nx = f.shape
-        NZ, NY, NX = nz*npz, ny*npy, nx*npx
+
+        mz, my, mx = self.mx, self.my, self.mz
+        NZ, NY, NX = self.NZ, self.NY, self.NX
+        nz, ny, nx = self.nz, self.ny, self.nx
+        npz, npy, npx = self.npz, self.npy, self.npz
+        assert(f.shape == (nz, ny, nx))
 
         t_start = MPI.Wtime()
 
@@ -102,7 +111,7 @@ class CompactFiniteDifferenceSolver:
 
         t1 = MPI.Wtime()
 
-        x_R = batch_solver.solve(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
+        x_R = self.batch_solver.solve(a_line_local, b_line_local, c_line_local, d, nz*ny, nx)
         x_R = x_R.reshape([nz, ny, nx])
 
         self.comm.Barrier()
@@ -205,7 +214,7 @@ class CompactFiniteDifferenceSolver:
             a_reduced[1] = 0.
             c_reduced[-2] = 0.
 
-            params = batch_solver.solve(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*npx)
+            params = self.batch_solver.solve(a_reduced, b_reduced, c_reduced, -d_reduced, nz*ny, 2*npx)
             params = params.reshape([nz, ny, 2*npx])
         else:
             params = None
