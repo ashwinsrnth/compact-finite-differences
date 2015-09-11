@@ -67,7 +67,6 @@ def test_compactFD_dfdx():
         np.linspace(x_start, x_start + (nx-1)*dx, nx),
         indexing='ij')
 
-    print x_local.shape, (nz, ny, nx)
     f_local, dfdx_true_local, _, _ = get_3d_function_and_derivs_1(x_local, y_local, z_local)
 
     cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
