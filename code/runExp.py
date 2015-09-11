@@ -1,7 +1,8 @@
-import compactFD
+from compactFD import CompactFiniteDifferenceSolver
 import numpy as np
 from numpy.testing import *
 from mpi4py import MPI
+import pyopencl as cl
 import matplotlib.pyplot as plt
 import sys
 
@@ -19,13 +20,21 @@ def run(prob_size):
 
     comm.Barrier()
     t1 = MPI.Wtime()
-     
+
     size = comm.Get_size()
     npz, npy, npx = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
     assert npz*npy*npx == size
 
     comm = comm.Create_cart([npz, npy, npx])
     rank = comm.Get_rank()
+
+    platform = cl.get_platforms()[0]
+    if 'NVIDIA' in platform.name:
+        device = platform.get_devices()[rank%2]
+    else:
+        device = platform.get_devices()[0]
+    ctx = cl.Context([device])
+    queue = cl.CommandQueue(ctx)
 
     NX = NY = NZ = prob_size
 
@@ -38,7 +47,7 @@ def run(prob_size):
     dx = 2*np.pi/(NX-1)
     dy = 2*np.pi/(NY-1)
     dz = 2*np.pi/(NZ-1)
-    
+
     comm.Barrier()
     t2 = MPI.Wtime()
 
@@ -62,7 +71,8 @@ def run(prob_size):
 
     if rank == 0: print 'Computing function and true derivative: ', t2-t1
 
-    dfdx_local = compactFD.dfdx(comm, f_local, dx)
+    cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
+    dfdx_local = cfd.dfdx(f_local, dx)
 
     print np.mean(abs(dfdx_local - dfdx_true_local)/np.mean(abs(dfdx_true_local)))
     comm.Barrier()
