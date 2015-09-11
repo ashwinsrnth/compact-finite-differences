@@ -66,7 +66,8 @@ class CompactFiniteDifferenceSolver:
 
         #---------------------------------------------------------------------------
         # compute the RHS of the system
-
+        self.comm.Barrier()
+        t1 = MPI.Wtime()
         self.da.global_to_local(f, self.f_local)
         nz, ny, nx = self.f_local[1:-1, 1:-1, 1:-1].shape
         f_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, (nz+2)*(ny+2)*(nx+2)*8)
@@ -76,6 +77,9 @@ class CompactFiniteDifferenceSolver:
             f_g, d_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
                 np.int32(mx), np.int32(npx))
         evt.wait()
+        self.comm.Barrier()
+        t2 = MPI.Wtime()
+        print 'Computing RHS: ', t2-t1
 
         #---------------------------------------------------------------------------
         # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -100,7 +104,9 @@ class CompactFiniteDifferenceSolver:
 
         x_LH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_LH_line)
         x_UH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_UH_line)
-
+        
+        self.comm.Barrier()
+        t1 = MPI.Wtime()
         x_R = np.zeros(nz*ny*nx, dtype=np.float64)
         a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
         b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
@@ -117,6 +123,9 @@ class CompactFiniteDifferenceSolver:
         evt.wait()
 
         x_R = x_R.reshape([nz, ny, nx])
+        self.comm.Barrier()
+        t2 = MPI.Wtime()
+        print 'Solving for x_R: ', t2-t1
         #---------------------------------------------------------------------------
         # the first and last elements in x_LH and x_UH,
         # and also the first and last "faces" in x_R,
@@ -235,8 +244,13 @@ class CompactFiniteDifferenceSolver:
         alpha = params_local[:, :, 0]
         beta = params_local[:, :, 1]
 
+        self.comm.Barrier()
+        t1 = MPI.Wtime()
         # note the broadcasting below!
         dfdx_local = x_R + np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
+        self.comm.Barrier()
+        t2 = MPI.Wtime()
+        print 'Summing the solutions: ', t2-t1
 
         cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
