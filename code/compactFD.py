@@ -297,18 +297,38 @@ class CompactFiniteDifferenceSolver:
         c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, system_size*8)
         d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, num_systems*system_size*8)
 
+        t1 = MPI.Wtime()
         evt1 = cl.enqueue_copy(self.queue, a_g, a)
         evt2 = cl.enqueue_copy(self.queue, b_g, b)
         evt3 = cl.enqueue_copy(self.queue, c_g, c)
-        evt4 = cl.enqueue_copy(self.queue, d_g, d)
-        evt5 = cl.enqueue_copy(self.queue, c2_g, c)
+        evt4 = cl.enqueue_copy(self.queue, c2_g, c)
+        cl.wait_for_events([evt1, evt2, evt3, evt4])
+        t2 = MPI.Wtime()
 
+        print 'Small copies: ', t2-t1
+
+        t1 = MPI.Wtime()
+        evt = cl.enqueue_copy(self.queue, d_g, d)
+        evt.wait()
+        t2 = MPI.Wtime()
+
+        print 'Large copy: ', t2-t1
+
+        t1 = MPI.Wtime()
         evt = self.prg.compactTDMA(self.queue, [num_systems], None,
             a_g, b_g, c_g, d_g, c2_g,
                 np.int32(system_size))
         evt.wait()
+        t2 = MPI.Wtime()
 
+        print 'Actual solve: ', t2-t1
+
+
+        t1 = MPI.Wtime()
         evt = cl.enqueue_copy(self.queue, x, d_g)
         evt.wait()
+        t2 = MPI.Wtime()
+
+        print 'Final copy: ', t2-t1
 
         return x
