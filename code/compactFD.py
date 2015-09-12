@@ -121,7 +121,7 @@ class CompactFiniteDifferenceSolver:
                 np.int32(nx))
         evt = cl.enqueue_copy(self.queue, x_R, d_g)
         evt.wait()
-
+        
         x_R = x_R.reshape([nz, ny, nx])
         self.comm.Barrier()
         t2 = MPI.Wtime()
@@ -260,7 +260,7 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, x_UH_line_g, x_UH_line)
         cl.enqueue_copy(self.queue, x_LH_line_g, x_LH_line)
 
-        evt = self.prg.sumSolutionsdfdx(self.queue, [nx, ny, nz], None,
+        evt = self.prg.sumSolutionsdfdx2D(self.queue, [ny, nz], None,
             d_g, x_UH_line_g, x_LH_line_g, alpha_g, beta_g,
                 np.int32(nx), np.int32(ny), np.int32(nz))
         

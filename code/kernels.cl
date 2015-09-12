@@ -14,7 +14,6 @@ __kernel void compactTDMA(__global double *a_d,
 
     int gid = get_global_id(0);
     int block_start = gid*block_size;
-    int block_end = block_start + block_size - 1;
 
     /* do a serial TDMA on the local system */
 
@@ -82,7 +81,7 @@ __kernel void computeRHSdfdx(__global double *f_local_d,
     }
 }
 
-__kernel void sumSolutionsdfdx(__global double* x_R_d,
+__kernel void sumSolutionsdfdx3D(__global double* x_R_d,
                             __global double* x_UH_d,
                             __global double* x_LH_d,
                             __global double* alpha,
@@ -107,4 +106,36 @@ __kernel void sumSolutionsdfdx(__global double* x_R_d,
     i3d = iz*(ny*nx) + iy*nx + ix;
 
     x_R_d[i3d] = x_R_d[i3d] + alpha[i2d]*x_UH_d[ix] + beta[i2d]*x_LH_d[ix];
+}
+
+__kernel void sumSolutionsdfdx2D(__global double* x_R_d,
+                            __global double* x_UH_d,
+                            __global double* x_LH_d,
+                            __global double* alpha,
+                            __global double* beta,
+                            int nx,
+                            int ny,
+                            int nz)
+{
+    /*
+    Computes the sum of the solution x_R, x_UH and x_LH,
+    where x_R is [nz, ny, nx] and x_LH & x_UH are [nx] sized.
+    Performs the following:
+
+    np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
+    */
+
+    int iy = get_global_id(0);
+    int iz = get_global_id(1);
+    int i3d, i2d;
+    double a, b;
+
+    i2d = iz*ny + iy;
+    a = alpha[i2d];
+    b = beta[i2d];
+
+    for (int ix=0; ix<nx; ix++) {
+        i3d = iz*(nx*ny) + iy*nx + ix;
+        x_R_d[i3d] = x_R_d[i3d] + a*x_UH_d[ix] + b*x_LH_d[ix];
+    }
 }
