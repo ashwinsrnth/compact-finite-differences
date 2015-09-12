@@ -260,7 +260,7 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, x_UH_line_g, x_UH_line)
         cl.enqueue_copy(self.queue, x_LH_line_g, x_LH_line)
 
-        evt = self.prg.sumSolutionsdfdx2D(self.queue, [ny, nz], None,
+        evt = self.prg.sumSolutionsdfdx3D(self.queue, [nx, ny, nz], None,
             d_g, x_UH_line_g, x_LH_line_g, alpha_g, beta_g,
                 np.int32(nx), np.int32(ny), np.int32(nz))
         
@@ -269,8 +269,9 @@ class CompactFiniteDifferenceSolver:
         ta = MPI.Wtime()
         evt = cl.enqueue_copy(self.queue, dfdx_local, d_g)
         evt.wait()
-        tb = MPI.Wtime()
+
         self.comm.Barrier()
+        tb = MPI.Wtime()
         t2 = MPI.Wtime()
 
         print 'Copying solution : ', tb-ta
