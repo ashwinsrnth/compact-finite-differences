@@ -139,3 +139,94 @@ __kernel void sumSolutionsdfdx2D(__global double* x_R_d,
         x_R_d[i3d] = x_R_d[i3d] + a*x_UH_d[ix] + b*x_LH_d[ix];
     }
 }
+
+
+__kernel void blockCyclicReduction(__global double *a_g,
+                               __global double *b_g,
+                               __global double *c_g,
+                               __global double *d_g,
+                               __global double *x_g,
+                               int nx,
+                               int ny,
+                               int nz,
+                               int block_size,
+                               __local double *a_l,
+                               __local double *b_l,
+                               __local double *c_l,
+                               __local double *d_l,
+                               __local double *x_l) {
+    int ix = get_global_id(0);
+    int iy = get_global_id(1);
+    int iz = get_global_id(2);
+    int lid = get_local_id(0);
+    int i, m, n;
+    int stride;
+    int i3d = iz*(nx*ny) + iy*nx + ix;
+
+    double k1, k2;
+
+    /* each block reads its portion to shared memory */
+    a_l[lid] = a_g[ix];
+    b_l[lid] = b_g[ix];
+    c_l[lid] = c_g[ix];
+    d_l[lid] = d_g[i3d];
+    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+
+    /* solve the block in shared memory */
+    stride = 1;
+    for (int step=0; step<native_log2((float) nx); step++) {
+        stride = stride*2;
+
+        if (lid < nx/stride) {
+            i = (stride-1) + lid*(stride);
+
+            if (stride == nx) {
+                m = nx/2 - 1;
+                n = nx - 1;
+
+                x_l[m] = (d_l[m]*b_l[n] - c_l[m]*d_l[n])/(b_l[m]*b_l[n] - c_l[m]*a_l[n]);
+                x_l[n] = (b_l[m]*d_l[n] - d_l[m]*a_l[n])/(b_l[m]*b_l[n] - c_l[m]*a_l[n]);
+            }
+
+            else {
+                if (i == (nx-1)) {
+                    k1 = a_l[i]/b_l[i-stride/2];
+                    a_l[i] = -a_l[i-stride/2]*k1;
+                    b_l[i] = b_l[i] - c_l[i-stride/2]*k1;
+                    d_l[i] = d_l[i] - d_l[i-stride/2]*k1;
+                }
+                else {
+                    k1 = a_l[i]/b_l[i-stride/2];
+                    k2 = c_l[i]/b_l[i+stride/2];
+                    a_l[i] = -a_l[i-stride/2]*k1;
+                    b_l[i] = b_l[i] - c_l[i-stride/2]*k1 - a_l[i+stride/2]*k2;
+                    c_l[i] = -c_l[i+stride/2]*k2;
+                    d_l[i] = d_l[i] - d_l[i-stride/2]*k1 - d_l[i+stride/2]*k2;
+                }
+            }
+        }
+        barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+    }
+
+
+    for (int step=0; step<native_log2((float) nx)-1; step++) {
+        stride = stride/2;
+
+        if (lid < nx/stride){
+            i = (stride/2-1) + lid*stride;
+
+            if (i < stride) {
+                x_l[i] = (d_l[i] - c_l[i]*x_l[i+stride/2])/b_l[i];
+            }
+
+            else {
+                x_l[i] = (d_l[i] - a_l[i]*x_l[i-stride/2] - c_l[i]*x_l[i+stride/2])/b_l[i];
+            }
+        }
+
+        barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+    }
+    /* write from shared memory to x_d */
+    x_g[i3d] = x_l[lid];
+    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+}
