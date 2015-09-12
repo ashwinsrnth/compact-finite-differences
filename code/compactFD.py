@@ -47,7 +47,7 @@ class CompactFiniteDifferenceSolver:
         self.x_R = np.zeros([self.nz, self.ny, self.nx], dtype=np.float64)
         self.d_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, self.nx*self.ny*self.nz*8)
 
-    def dfdx(self, f, dx):
+    def dfdx(self, f, dx, dfdx_local):
         '''
         Get the local x-derivative given
         the local portion of f.
@@ -117,6 +117,9 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, b_g, b_line_local)
         cl.enqueue_copy(self.queue, c_g, c_line_local)
         cl.enqueue_copy(self.queue, c2_g, c_line_local)
+     
+        self.comm.Barrier()
+        ta = MPI.Wtime()
         evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
             a_g, b_g, c_g, d_g, c2_g,
                 np.int32(nx))
@@ -124,7 +127,9 @@ class CompactFiniteDifferenceSolver:
         evt.wait()
         
         self.comm.Barrier()
+        tb = MPI.Wtime()
         t2 = MPI.Wtime()
+        print 'Actual kernel: ', tb-ta
         print 'Solving for x_R: ', t2-t1
         #---------------------------------------------------------------------------
         # the first and last elements in x_LH and x_UH,
@@ -223,6 +228,7 @@ class CompactFiniteDifferenceSolver:
             cl.enqueue_copy(self.queue, b_g, b_reduced)
             cl.enqueue_copy(self.queue, c_g, c_reduced)
             cl.enqueue_copy(self.queue, c2_g, c_reduced)
+            t1 = MPI.Wtime()
             evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
                 a_g, b_g, c_g, d_reduced_g, c2_g,
                     np.int32(2*npx))
@@ -244,12 +250,12 @@ class CompactFiniteDifferenceSolver:
         alpha = params_local[:, :, 0].copy()
         beta = params_local[:, :, 1].copy()
 
-        self.comm.Barrier()
-        t1 = MPI.Wtime()
         # need some space:
         f_g.release()
-        
-        dfdx_local = np.zeros([nz, ny, nx], dtype=np.float64)
+
+        self.comm.Barrier()
+        t1 = MPI.Wtime()
+       
         alpha_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*8)
         beta_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*8)
         x_UH_line_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
@@ -259,22 +265,22 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, beta_g, beta)
         cl.enqueue_copy(self.queue, x_UH_line_g, x_UH_line)
         cl.enqueue_copy(self.queue, x_LH_line_g, x_LH_line)
-
+        
+        ta = MPI.Wtime()
         evt = self.prg.sumSolutionsdfdx3D(self.queue, [nx, ny, nz], None,
             d_g, x_UH_line_g, x_LH_line_g, alpha_g, beta_g,
-                np.int32(nx), np.int32(ny), np.int32(nz))
-        
+                np.int32(nx), np.int32(ny), np.int32(nz))        
         evt.wait()
+        tb = MPI.Wtime()
 
-        ta = MPI.Wtime()
+        print 'Actual kernel: ', tb-ta
+
         evt = cl.enqueue_copy(self.queue, dfdx_local, d_g)
         evt.wait()
 
         self.comm.Barrier()
-        tb = MPI.Wtime()
         t2 = MPI.Wtime()
-
-        print 'Copying solution : ', tb-ta
+        print 'Doing the copy: ', t2-tb
         print 'Summing the solutions: ', t2-t1
 
         cl.enqueue_barrier(self.queue)
@@ -283,4 +289,3 @@ class CompactFiniteDifferenceSolver:
 
         if rank == 0: print 'Total time: ', t_end-t_start
 
-        return dfdx_local

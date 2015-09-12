@@ -71,7 +71,8 @@ def run(prob_size):
     if rank == 0: print 'Computing function and true derivative: ', t2-t1
 
     cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
-    dfdx_local = cfd.dfdx(f_local, dx)
+    dfdx_local = np.zeros_like(f_local, dtype=np.float64)
+    cfd.dfdx(f_local, dx, dfdx_local)
 
     print np.mean(abs(dfdx_local - dfdx_true_local)/np.mean(abs(dfdx_true_local)))
     comm.Barrier()
@@ -79,7 +80,7 @@ def run(prob_size):
 if __name__ == "__main__":
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    for prob_size in 24, 48, 96, 192:
+    for prob_size in 24, 48, 96, 192, 286:
         if rank == 0:
             print prob_size
         run(prob_size)
