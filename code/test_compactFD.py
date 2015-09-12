@@ -47,7 +47,7 @@ def test_compactFD_dfdx():
     ctx = cl.Context([device])
     queue = cl.CommandQueue(ctx)
 
-    NX = NY = NZ = 144
+    NX = NY = NZ = 128
 
     nx = NX/size_per_dir
     ny = NY/size_per_dir

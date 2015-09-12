@@ -80,7 +80,7 @@ def run(prob_size):
 if __name__ == "__main__":
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    for prob_size in 24, 48, 96, 192, 286:
+    for prob_size in 32, 64, 128, 256:
         if rank == 0:
             print prob_size
         run(prob_size)
