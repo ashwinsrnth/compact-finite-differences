@@ -44,6 +44,7 @@ class CompactFiniteDifferenceSolver:
         self.da = mpiDA.DA(self.comm.Clone(), [self.nz, self.ny, self.nx], [self.npz, self.npy, self.npx], 1)
 
         self.f_local = np.zeros([self.nz+2, self.ny+2, self.nx+2], dtype=np.float64)
+        self.x_R = np.zeros([self.nz, self.ny, self.nx], dtype=np.float64)
         self.d_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, self.nx*self.ny*self.nz*8)
 
     def dfdx(self, f, dx):
@@ -107,7 +108,7 @@ class CompactFiniteDifferenceSolver:
 
         self.comm.Barrier()
         t1 = MPI.Wtime()
-        x_R = np.zeros(nz*ny*nx, dtype=np.float64)
+      
         a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
         b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
         c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
@@ -119,10 +120,9 @@ class CompactFiniteDifferenceSolver:
         evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
             a_g, b_g, c_g, d_g, c2_g,
                 np.int32(nx))
-        evt = cl.enqueue_copy(self.queue, x_R, d_g)
+        evt = cl.enqueue_copy(self.queue, self.x_R, d_g)
         evt.wait()
         
-        x_R = x_R.reshape([nz, ny, nx])
         self.comm.Barrier()
         t2 = MPI.Wtime()
         print 'Solving for x_R: ', t2-t1
@@ -173,8 +173,8 @@ class CompactFiniteDifferenceSolver:
         subarray.Commit()
 
         x_R_faces = np.zeros([nz, ny, 2], dtype=np.float64)
-        x_R_faces[:, :, 0] = x_R[:, :, 0].copy()
-        x_R_faces[:, :, 1] = x_R[:, :, -1].copy()
+        x_R_faces[:, :, 0] = self.x_R[:, :, 0].copy()
+        x_R_faces[:, :, 1] = self.x_R[:, :, -1].copy()
 
         cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
