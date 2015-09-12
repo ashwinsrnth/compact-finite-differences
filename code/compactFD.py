@@ -121,14 +121,15 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, b_g, b_line_local)
         cl.enqueue_copy(self.queue, c_g, c_line_local)
         cl.enqueue_copy(self.queue, c2_g, c_line_local)
-     
+        
         self.comm.Barrier()
         ta = MPI.Wtime()
-        evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
-            a_g, b_g, c_g, d_g, c2_g,
-                np.int32(nx))
+        evt = self.prg.blockCyclicReduction(self.queue, [nx, nz, ny], [nx, 1, 1],
+            a_g, b_g, c_g, d_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx),
+                cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
         evt = cl.enqueue_copy(self.queue, self.x_R, d_g)
         evt.wait()
+        
         
         self.comm.Barrier()
         tb = MPI.Wtime()
@@ -232,7 +233,6 @@ class CompactFiniteDifferenceSolver:
             cl.enqueue_copy(self.queue, b_g, b_reduced)
             cl.enqueue_copy(self.queue, c_g, c_reduced)
             cl.enqueue_copy(self.queue, c2_g, c_reduced)
-            t1 = MPI.Wtime()
             evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
                 a_g, b_g, c_g, d_reduced_g, c2_g,
                     np.int32(2*npx))

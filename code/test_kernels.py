@@ -18,11 +18,4 @@ def scipy_solve_banded(a, b, c, rhs):
     x = solve_banded(l_and_u, ab, rhs)
     return x
 
-a = np.random.rand(5)
-b = np.random.rand(5)
-c = np.random.rand(5)
-d = np.random.rand(10)
-x = kernels.solve_many_small_systems(a, b, c, d, 2, 5)
 
-print np.append(scipy_solve_banded(a, b, c, d[:5]), scipy_solve_banded(a, b, c, d[5:10]))
-print x

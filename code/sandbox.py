@@ -2,6 +2,7 @@ import pyopencl as cl
 import kernels
 import numpy as np
 from scipy.linalg import solve_banded
+from numpy.testing import assert_allclose
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
@@ -44,26 +45,22 @@ for i in range(nz):
         x[i, j, :] = scipy_solve_banded(a, b, c, d[i, j, :])
 
 def blockCyclicReduction(a, b, c, d):
-    x = np.zeros(d.shape, dtype=np.float64)
     nz, ny, nx = d.shape
     a_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*8)
     b_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*8)
     c_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*8)
     d_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*ny*nz*8)
-    x_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*ny*nz*8)
     cl.enqueue_copy(queue, a_g, a)
     cl.enqueue_copy(queue, b_g, b)
     cl.enqueue_copy(queue, c_g, c)
     cl.enqueue_copy(queue, d_g, d)
-    cl.enqueue_copy(queue, x_g, x)
 
     prg.blockCyclicReduction(queue, [nx, ny, nz], [nx, 1, 1],
-        a_g, b_g, c_g, d_g, x_g,
+        a_g, b_g, c_g, d_g,
             np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx),
-                cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
-    cl.enqueue_copy(queue, x, x_g)
+                cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
 
-    return x
+    cl.enqueue_copy(queue, d, d_g)
 
-print x
-print blockCyclicReduction(a, b, c, d)
+blockCyclicReduction(a, b, c, d)
+assert_allclose(x, d)
