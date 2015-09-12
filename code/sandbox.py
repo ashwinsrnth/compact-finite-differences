@@ -22,7 +22,7 @@ def scipy_solve_banded(a, b, c, rhs):
 
 platform = cl.get_platforms()[0]
 if 'NVIDIA' in platform.name:
-    device = platform.get_devices()[rank%2]
+    device = platform.get_devices()[0]
 else:
     device = platform.get_devices()[0]
 ctx = cl.Context([device])
@@ -44,25 +44,26 @@ for i in range(nz):
         x[i, j, :] = scipy_solve_banded(a, b, c, d[i, j, :])
 
 def blockCyclicReduction(a, b, c, d):
-    x = np.zeros_like(d, dtype=np.float64)
+    x = np.zeros(d.shape, dtype=np.float64)
     nz, ny, nx = d.shape
     a_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*8)
     b_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*8)
     c_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*8)
     d_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*ny*nz*8)
     x_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*ny*nz*8)
-
     cl.enqueue_copy(queue, a_g, a)
     cl.enqueue_copy(queue, b_g, b)
     cl.enqueue_copy(queue, c_g, c)
     cl.enqueue_copy(queue, d_g, d)
+    cl.enqueue_copy(queue, x_g, x)
 
     prg.blockCyclicReduction(queue, [nx, ny, nz], [nx, 1, 1],
         a_g, b_g, c_g, d_g, x_g,
             np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx),
-                cl.LocalMemory(nx), cl.LocalMemory(nx), cl.LocalMemory(nx), cl.LocalMemory(nx), cl.LocalMemory(nx))
+                cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
     cl.enqueue_copy(queue, x, x_g)
+
     return x
 
-import numpy.testing as testing
-testing.assert_allclose(blockCyclicReduction(a, b, c, d), x)
+print x
+print blockCyclicReduction(a, b, c, d)
