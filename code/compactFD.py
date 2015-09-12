@@ -74,12 +74,16 @@ class CompactFiniteDifferenceSolver:
         f_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, (nz+2)*(ny+2)*(nx+2)*8)
         d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, (nz*ny*nx)*8)
         evt = cl.enqueue_copy(self.queue, f_g, self.f_local)
+        evt.wait()
+        self.comm.Barrier()
+        ta = MPI.Wtime()
         evt = self.prg.computeRHSdfdx(self.queue, [nx, ny, nz], None,
             f_g, d_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
                 np.int32(mx), np.int32(npx))
         evt.wait()
         self.comm.Barrier()
         t2 = MPI.Wtime()
+        print 'Actual kernel: ', t2-ta
         print 'Computing RHS: ', t2-t1
 
         #---------------------------------------------------------------------------
