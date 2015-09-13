@@ -127,14 +127,16 @@ class CompactFiniteDifferenceSolver:
         evt = self.prg.blockCyclicReduction(self.queue, [nx, nz, ny], [nx, 1, 1],
             a_g, b_g, c_g, d_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx),
                 cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
+        evt.wait()
+        tb = MPI.Wtime()
         evt = cl.enqueue_copy(self.queue, self.x_R, d_g)
         evt.wait()
-        
-        
+        tc = MPI.Wtime()
+         
         self.comm.Barrier()
-        tb = MPI.Wtime()
         t2 = MPI.Wtime()
         print 'Actual kernel: ', tb-ta
+        print 'Copying x_R: ', tc-tb
         print 'Solving for x_R: ', t2-t1
         #---------------------------------------------------------------------------
         # the first and last elements in x_LH and x_UH,
