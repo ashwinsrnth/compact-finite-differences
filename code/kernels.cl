@@ -206,7 +206,7 @@ __kernel void blockCyclicReduction(__global double *a_g,
                 }
             }
         }
-        barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+        barrier(CLK_LOCAL_MEM_FENCE);
     }
 
     
@@ -225,10 +225,10 @@ __kernel void blockCyclicReduction(__global double *a_g,
             }
         }
 
-        barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+        barrier(CLK_LOCAL_MEM_FENCE);
     }
     
     /* write from shared memory to x_d */
     d_g[i3d] = d_l[lid];
-    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+    barrier(CLK_GLOBAL_MEM_FENCE);
 }
