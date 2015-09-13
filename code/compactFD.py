@@ -71,7 +71,7 @@ class CompactFiniteDifferenceSolver:
         t1 = MPI.Wtime()
         self.da.global_to_local(f, self.f_local)
         nz, ny, nx = self.f_local[1:-1, 1:-1, 1:-1].shape
-        f_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, (nz+2)*(ny+2)*(nx+2)*8)
+        f_g = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY, (nz+2)*(ny+2)*(nx+2)*8)
         d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, (nz*ny*nx)*8)
         evt = cl.enqueue_copy(self.queue, f_g, self.f_local)
         evt.wait()
@@ -124,6 +124,8 @@ class CompactFiniteDifferenceSolver:
         
         self.comm.Barrier()
         ta = MPI.Wtime()
+        #evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
+        #     a_g, b_g, c_g, d_g, c2_g, np.int32(nx))
         evt = self.prg.blockCyclicReduction(self.queue, [nx, nz, ny], [nx, 1, 1],
             a_g, b_g, c_g, d_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx),
                 cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
