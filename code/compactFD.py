@@ -286,14 +286,16 @@ class CompactFiniteDifferenceSolver:
         evt = cl.enqueue_copy(self.queue, dfdx_local, d_g)
         evt.wait()
 
+        cl.enqueue_barrier(self.queue)
+
         self.comm.Barrier()
         t2 = MPI.Wtime()
-        if rank == 0 : print 'Doing the copy: ', t2-tb
-        if rank == 0 : print 'Summing the solutions: ', t2-t1
-
-        cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t_end = MPI.Wtime()
 
-        if rank == 0: print 'Total time: ', t_end-t_start
+        if rank == 0 : print 'Doing the copy: ', t2-tb
+        if rank == 0 : print 'Summing the solutions: ', t2-t1
+        
+        self.comm.Barrier()
+        if rank == 0 : print 'Total time: ', t_end-t_start
 

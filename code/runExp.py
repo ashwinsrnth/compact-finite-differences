@@ -71,8 +71,16 @@ def run(prob_size):
 
     if rank == 0: print 'Computing function and true derivative: ', t2-t1
 
-    cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
     dfdx_local = np.zeros_like(f_local, dtype=np.float64)
+
+    comm.Barrier()
+    t1 = MPI.Wtime()
+    cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
+    comm.Barrier()
+    t2 = MPI.Wtime()
+
+    if rank == 0: print 'Instantiating solver: ', t2-t1
+
     cfd.dfdx(f_local, dx, dfdx_local)
 
     if rank == 0: print np.mean(abs(dfdx_local - dfdx_true_local)/np.mean(abs(dfdx_true_local)))
@@ -85,14 +93,16 @@ if __name__ == "__main__":
     NZ = int(sys.argv[1])
     NY = int(sys.argv[2])
     NX = int(sys.argv[3])
+    comm.Barrier()
     if rank == 0:
         print 'Rank: ', rank, 'Hostname: ', socket.gethostname()
         print 'Solving a problem sized (', NZ, NY, NX, ') on ', size, ' processes in a single line.'
         print 'Corresponds to a total of ', (NX/NZ)*(NX/NY)*size, ' processes.'
         print 'If GPUs, full simulation requires ', (NX/NZ)*(NX/NY)*size/2, ' nodes. Assuming 2 GPUs/node.'
         print 'If CPUs,  full simulation requires ', (NX/NZ)*(NX/NY)*size/16, ' nodes. Assuming 16 CPU cores/node.'        
-    
+    comm.Barrier()
     print 'Rank: ', rank, 'Hostname: ', socket.gethostname()
+    comm.Barrier()
     run((NZ, NY, NX))
         
 
