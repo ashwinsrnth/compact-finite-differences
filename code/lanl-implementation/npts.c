@@ -51,12 +51,17 @@ void nonperiodic_tridiagonal_solver(MPI_Comm comm, double* beta_local,
 
     else {
         phi_local[0] = beta_local[0]*r_local[0];
-        psi_local[0] = -(1./3)*beta_local[0];
+        psi_local[0] = -(1./4)*beta_local[0];
     }
 
     for(i=1; i<local_size; i++) {
-        phi_local[i] = beta_local[i]*(r_local[i] - (1./3)*phi_local[i-1]);
-        psi_local[i] = -(1./3)*beta_local[i]*psi_local[i-1];
+        phi_local[i] = beta_local[i]*(r_local[i] - (1./4)*phi_local[i-1]);
+        psi_local[i] = -(1./4)*beta_local[i]*psi_local[i-1];
+    }
+    
+    if (rank == nprocs-1) {
+        phi_local[local_size-1] = beta_local[local_size-1]*(r_local[local_size-1] - 2*phi_local[local_size-2]);
+        psi_local[local_size-1] = -2*beta_local[local_size-1]*psi_local[local_size-2];
     }
 
     MPI_Barrier(comm);
@@ -193,13 +198,27 @@ void precompute_beta_gam(MPI_Comm comm, size_t system_size, double* beta_local,
             }
             else {
                 MPI_Recv(&last_beta, 1, MPI_DOUBLE, rank-1, 10, comm, MPI_STATUS_IGNORE);
-                beta_local[0] = 1./(1. - (1./3)*last_beta*(1./3));
-                gam_local[0] = last_beta*(1./3);
+                beta_local[0] = 1./(1. - (1./4)*last_beta*(1./4));
+                gam_local[0] = last_beta*(1./4);
             }
 
             for (i=1; i<local_size; i++) {
-                beta_local[i] = 1./(1. - (1./3)*beta_local[i-1]*(1./3));
-                gam_local[i] = beta_local[i-1]*(1./3);
+                if ((rank == 0) && (i == 1)) {
+                    gam_local[i] = beta_local[i-1]*2;
+                }
+                else {
+                    gam_local[i] = beta_local[i-1]*1./4;
+                }
+                if ((rank == nprocs-1) && (i == local_size-1)) {
+                    beta_local[i] = 1./(1. - 2.*beta_local[i-1]*(1./4));
+                }
+                else if ((rank == 0) && (i == 1)) {
+                    beta_local[i] = 1./(1. - 2.*beta_local[i-1]*(1./4));
+                }
+                else {
+                    beta_local[i] = 1./(1. - (1./4)*beta_local[i-1]*(1./4));
+
+                }
             }
 
             if (rank != nprocs-1) {
