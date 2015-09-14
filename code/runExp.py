@@ -5,6 +5,7 @@ from mpi4py import MPI
 import pyopencl as cl
 import matplotlib.pyplot as plt
 import sys
+import socket
 
 def get_3d_function_and_derivs_1(x, y, z):
     f = z*y*np.sin(x) + z*x*np.sin(y) + x*y*np.sin(z)
@@ -22,7 +23,7 @@ def run(prob_size):
     t1 = MPI.Wtime()
 
     size = comm.Get_size()
-    npz, npy, npx = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+    npz, npy, npx = int(sys.argv[4]), int(sys.argv[5]), int(sys.argv[6])
     assert npz*npy*npx == size
 
     comm = comm.Create_cart([npz, npy, npx])
@@ -80,6 +81,18 @@ def run(prob_size):
 if __name__ == "__main__":
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    import socket
-    print rank, socket.gethostname()
-    run((256, 256, 1024))
+    size = comm.Get_size()
+    NZ = int(sys.argv[1])
+    NY = int(sys.argv[2])
+    NX = int(sys.argv[3])
+    if rank == 0:
+        print 'Rank: ', rank, 'Hostname: ', socket.gethostname()
+        print 'Solving a problem sized (', NZ, NY, NX, ') on ', size, ' processes in a single line.'
+        print 'Corresponds to a total of ', (NX/NZ)*(NX/NY)*size, ' processes.'
+        print 'If GPUs, full simulation requires ', (NX/NZ)*(NX/NY)*size/2, ' nodes. Assuming 2 GPUs/node.'
+        print 'If CPUs,  full simulation requires ', (NX/NZ)*(NX/NY)*size/16, ' nodes. Assuming 16 CPU cores/node.'        
+    
+    print 'Rank: ', rank, 'Hostname: ', socket.gethostname()
+    run((NZ, NY, NX))
+        
+
