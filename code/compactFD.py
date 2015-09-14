@@ -83,8 +83,8 @@ class CompactFiniteDifferenceSolver:
         evt.wait()
         self.comm.Barrier()
         t2 = MPI.Wtime()
-        print 'Actual kernel: ', t2-ta
-        print 'Computing RHS: ', t2-t1
+        if rank == 0 : print 'Actual kernel: ', t2-ta
+        if rank == 0 : print 'Computing RHS: ', t2-t1
 
         #---------------------------------------------------------------------------
         # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -137,9 +137,9 @@ class CompactFiniteDifferenceSolver:
          
         self.comm.Barrier()
         t2 = MPI.Wtime()
-        print 'Actual kernel: ', tb-ta
-        print 'Copying x_R: ', tc-tb
-        print 'Solving for x_R: ', t2-t1
+        if rank == 0 : print 'Actual kernel: ', tb-ta
+        if rank == 0 : print 'Copying x_R: ', tc-tb
+        if rank == 0 : print 'Solving for x_R: ', t2-t1
         #---------------------------------------------------------------------------
         # the first and last elements in x_LH and x_UH,
         # and also the first and last "faces" in x_R,
@@ -281,15 +281,15 @@ class CompactFiniteDifferenceSolver:
         evt.wait()
         tb = MPI.Wtime()
 
-        print 'Actual kernel: ', tb-ta
+        if rank == 0 : print 'Actual kernel: ', tb-ta
 
         evt = cl.enqueue_copy(self.queue, dfdx_local, d_g)
         evt.wait()
 
         self.comm.Barrier()
         t2 = MPI.Wtime()
-        print 'Doing the copy: ', t2-tb
-        print 'Summing the solutions: ', t2-t1
+        if rank == 0 : print 'Doing the copy: ', t2-tb
+        if rank == 0 : print 'Summing the solutions: ', t2-t1
 
         cl.enqueue_barrier(self.queue)
         self.comm.Barrier()

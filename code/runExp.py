@@ -36,7 +36,7 @@ def run(prob_size):
     ctx = cl.Context([device])
     queue = cl.CommandQueue(ctx)
 
-    NX = NY = NZ = prob_size
+    (NZ, NY, NX)= prob_size
 
     nx = NX/npx
     ny = NY/npy
@@ -74,15 +74,12 @@ def run(prob_size):
     dfdx_local = np.zeros_like(f_local, dtype=np.float64)
     cfd.dfdx(f_local, dx, dfdx_local)
 
-    print np.mean(abs(dfdx_local - dfdx_true_local)/np.mean(abs(dfdx_true_local)))
+    if rank == 0: print np.mean(abs(dfdx_local - dfdx_true_local)/np.mean(abs(dfdx_true_local)))
     comm.Barrier()
 
 if __name__ == "__main__":
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    for prob_size in 32, 64, 128, 256:
-        if rank == 0:
-            print prob_size
-        run(prob_size)
-        if rank == 0:
-            print '--------------'
+    import socket
+    print rank, socket.gethostname()
+    run((256, 256, 1024))
