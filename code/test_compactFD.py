@@ -69,6 +69,18 @@ def test_compactFD_dfdx():
 
     f_global, dfdx_true_global, _, _ = get_3d_function_and_derivs_1(x_global, y_global, z_global)
 
+    cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
+
+    f_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, (nx+2)*(ny+2)*(nx+2)*8)
+    x_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*ny*nx*8)
+    f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
+    dfdx_global = np.zeros([nz, ny, nx], dtype=np.float64)
+
+    comm.Barrier()
+    cfd.dfdx(f_global, dx, dfdx_global, f_local, f_g, x_g)
+    comm.Barrier()
+    if rank == 0: print rel_err(dfdx_global, dfdx_true_global), rel_err(dfdx_global, dfdx_true_global, method='mean')
+
     f_g = cl.Buffer(ctx,
             cl.mem_flags.READ_WRITE | cl.mem_flags.ALLOC_HOST_PTR,
                 (nx+2)*(ny+2)*(nz+2)*8)
@@ -83,10 +95,10 @@ def test_compactFD_dfdx():
             cl.map_flags.WRITE | cl.map_flags.READ, 0,
             (nz, ny, nx), np.float64)
     
-    cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
+    comm.Barrier()
     cfd.dfdx(f_global, dx, dfdx_global, f_local, f_g, x_g)
-
-    print rel_err(dfdx_global, dfdx_true_global), rel_err(dfdx_global, dfdx_true_global, method='mean')
+    comm.Barrier()
+    if rank == 0: print rel_err(dfdx_global, dfdx_true_global), rel_err(dfdx_global, dfdx_true_global, method='mean')
 
     if rank == 0:
         dfdx = np.zeros([NZ, NY, NX], dtype=np.float64)
@@ -98,7 +110,6 @@ def test_compactFD_dfdx():
     if rank == 0:
         plt.plot(dfdx[NZ/2, NY/2, :])
         plt.savefig('temp.png')
-
 
 if __name__ == "__main__":
     test_compactFD_dfdx()

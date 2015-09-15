@@ -58,20 +58,37 @@ def run(prob_size):
     t1 = MPI.Wtime()
 
     x_start, y_start, z_start = mx*nx*dx, my*ny*dy, mz*nz*dz
-    z_local, y_local, x_local = np.meshgrid(
+    z_global, y_global, x_global = np.meshgrid(
         np.linspace(z_start, z_start + (nz-1)*dz, nz),
         np.linspace(y_start, y_start + (ny-1)*dy, ny),
         np.linspace(x_start, x_start + (nx-1)*dx, nx),
         indexing='ij')
 
-    f_local, dfdx_true_local, _, _ = get_3d_function_and_derivs_1(x_local, y_local, z_local)
+    f_global, dfdx_true_global, _, _ = get_3d_function_and_derivs_1(x_global, y_global, z_global)
 
     comm.Barrier()
     t2 = MPI.Wtime()
 
     if rank == 0: print 'Computing function and true derivative: ', t2-t1
 
-    dfdx_local = np.zeros_like(f_local, dtype=np.float64)
+    f_g = cl.Buffer(ctx,
+            cl.mem_flags.READ_WRITE | cl.mem_flags.ALLOC_HOST_PTR,
+                (nx+2)*(ny+2)*(nz+2)*8)
+    x_g = cl.Buffer(ctx,
+            cl.mem_flags.READ_WRITE | cl.mem_flags.ALLOC_HOST_PTR,
+                nx*ny*nz*8)
+
+    (f_local, event) = cl.enqueue_map_buffer(queue, f_g,
+        cl.map_flags.WRITE | cl.map_flags.READ, 0,
+        (nz+2, ny+2, nx+2), np.float64)
+    (dfdx_global, event) = cl.enqueue_map_buffer(queue, x_g,
+            cl.map_flags.WRITE | cl.map_flags.READ, 0,
+            (nz, ny, nx), np.float64)
+
+    f_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, (nx+2)*(ny+2)*(nx+2)*8)
+    x_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*ny*nx*8)
+    f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
+    dfdx_global = np.zeros([nz, ny, nx], dtype=np.float64)
 
     comm.Barrier()
     t1 = MPI.Wtime()
@@ -81,9 +98,9 @@ def run(prob_size):
 
     if rank == 0: print 'Instantiating solver: ', t2-t1
 
-    cfd.dfdx(f_local, dx, dfdx_local)
+    cfd.dfdx(f_global, dx, dfdx_global, f_local, f_g, x_g)
 
-    if rank == 0: print np.mean(abs(dfdx_local - dfdx_true_local)/np.mean(abs(dfdx_true_local)))
+    if rank == 0: print np.mean(abs(dfdx_global - dfdx_true_global)/np.mean(abs(dfdx_true_global)))
     comm.Barrier()
 
 if __name__ == "__main__":
