@@ -61,26 +61,26 @@ def test_compactFD_dfdx():
     dz = 2*np.pi/(NZ-1)
 
     x_start, y_start, z_start = mx*nx*dx, my*ny*dy, mz*nz*dz
-    z_local, y_local, x_local = np.meshgrid(
+    z_global, y_global, x_global = np.meshgrid(
         np.linspace(z_start, z_start + (nz-1)*dz, nz),
         np.linspace(y_start, y_start + (ny-1)*dy, ny),
         np.linspace(x_start, x_start + (nx-1)*dx, nx),
         indexing='ij')
 
-    f_local, dfdx_true_local, _, _ = get_3d_function_and_derivs_1(x_local, y_local, z_local)
+    f_global, dfdx_true_global, _, _ = get_3d_function_and_derivs_1(x_global, y_global, z_global)
 
     cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
-    dfdx_local = np.zeros_like(f_local, dtype=np.float64)
-    cfd.dfdx(f_local, dx, dfdx_local)
+    dfdx_global = np.zeros_like(f_global, dtype=np.float64)
+    cfd.dfdx(f_global, dx, dfdx_global)
 
-    print rel_err(dfdx_local, dfdx_true_local), rel_err(dfdx_local, dfdx_true_local, method='mean')
+    print rel_err(dfdx_global, dfdx_true_global), rel_err(dfdx_global, dfdx_true_global, method='mean')
 
     if rank == 0:
         dfdx = np.zeros([NZ, NY, NX], dtype=np.float64)
     else:
         dfdx = None
 
-    tools.gather_3D(comm, dfdx_local, dfdx)
+    tools.gather_3D(comm, dfdx_global, dfdx)
 
     if rank == 0:
         plt.plot(dfdx[NZ/2, NY/2, :])

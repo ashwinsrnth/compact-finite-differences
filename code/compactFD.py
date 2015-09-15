@@ -47,7 +47,7 @@ class CompactFiniteDifferenceSolver:
         self.x_R = np.zeros([self.nz, self.ny, self.nx], dtype=np.float64)
         self.d_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, self.nx*self.ny*self.nz*8)
 
-    def dfdx(self, f, dx, dfdx_local):
+    def dfdx(self, f_global, dx, dfdx_local):
         '''
         Get the local x-derivative given
         the local portion of f.
@@ -61,7 +61,7 @@ class CompactFiniteDifferenceSolver:
         NZ, NY, NX = self.NZ, self.NY, self.NX
         nz, ny, nx = self.nz, self.ny, self.nx
         npz, npy, npx = self.npz, self.npy, self.npx
-        assert(f.shape == (nz, ny, nx))
+        assert(f_global.shape == (nz, ny, nx))
 
         t_start = MPI.Wtime()
 
@@ -69,7 +69,7 @@ class CompactFiniteDifferenceSolver:
         # compute the RHS of the system
         self.comm.Barrier()
         t1 = MPI.Wtime()
-        self.da.global_to_local(f, self.f_local)
+        self.da.global_to_local(f_global, self.f_local)
         nz, ny, nx = self.f_local[1:-1, 1:-1, 1:-1].shape
         f_g = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY, (nz+2)*(ny+2)*(nx+2)*8)
         d_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, (nz*ny*nx)*8)
