@@ -259,9 +259,6 @@ class CompactFiniteDifferenceSolver:
         alpha = params_local[:, :, 0].copy()
         beta = params_local[:, :, 1].copy()
 
-        # need some space:
-        f_g.release()
-
         self.comm.Barrier()
         t1 = MPI.Wtime()
        

@@ -98,7 +98,8 @@ def run(prob_size):
 
     if rank == 0: print 'Instantiating solver: ', t2-t1
 
-    cfd.dfdx(f_global, dx, dfdx_global, f_local, f_g, x_g)
+    for i in range(5):
+        cfd.dfdx(f_global, dx, dfdx_global, f_local, f_g, x_g)
 
     if rank == 0: print np.mean(abs(dfdx_global - dfdx_true_global)/np.mean(abs(dfdx_true_global)))
     comm.Barrier()
