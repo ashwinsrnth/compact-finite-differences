@@ -68,10 +68,15 @@ def test_compactFD_dfdx():
         indexing='ij')
 
     f_global, dfdx_true_global, _, _ = get_3d_function_and_derivs_1(x_global, y_global, z_global)
+    f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
+    f_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, (nx+2)*(ny+2)*(nz+2)*8)
+    x_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, (nx*ny*nz)*8)
+
 
     cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
     dfdx_global = np.zeros_like(f_global, dtype=np.float64)
-    cfd.dfdx(f_global, dx, dfdx_global)
+
+    cfd.dfdx(f_global, dx, dfdx_global, f_local, f_g, x_g)
 
     print rel_err(dfdx_global, dfdx_true_global), rel_err(dfdx_global, dfdx_true_global, method='mean')
 
