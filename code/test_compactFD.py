@@ -68,14 +68,22 @@ def test_compactFD_dfdx():
         indexing='ij')
 
     f_global, dfdx_true_global, _, _ = get_3d_function_and_derivs_1(x_global, y_global, z_global)
-    f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
-    f_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, (nx+2)*(ny+2)*(nz+2)*8)
-    x_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, (nx*ny*nz)*8)
 
+    f_g = cl.Buffer(ctx,
+            cl.mem_flags.READ_WRITE | cl.mem_flags.ALLOC_HOST_PTR,
+                (nx+2)*(ny+2)*(nz+2)*8)
+    x_g = cl.Buffer(ctx,
+            cl.mem_flags.READ_WRITE | cl.mem_flags.ALLOC_HOST_PTR,
+                nx*ny*nz*8)
 
+    (f_local, event) = cl.enqueue_map_buffer(queue, f_g,
+        cl.map_flags.WRITE | cl.map_flags.READ, 0,
+        (nz+2, ny+2, nx+2), np.float64)
+    (dfdx_global, event) = cl.enqueue_map_buffer(queue, x_g,
+            cl.map_flags.WRITE | cl.map_flags.READ, 0,
+            (nz, ny, nx), np.float64)
+    
     cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
-    dfdx_global = np.zeros_like(f_global, dtype=np.float64)
-
     cfd.dfdx(f_global, dx, dfdx_global, f_local, f_g, x_g)
 
     print rel_err(dfdx_global, dfdx_true_global), rel_err(dfdx_global, dfdx_true_global, method='mean')
