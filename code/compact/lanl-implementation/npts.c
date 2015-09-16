@@ -5,6 +5,56 @@
 #include <sys/time.h>
 #include <time.h>
 
+
+void get_line_info(MPI_Comm comm, int *line_root, int *line_processes) {
+    int size, rank;
+    int mz, my, mx;
+    int npz, npy, npx;
+    int i;
+    int dims[3], periods[3], coords[3];
+
+    MPI_Comm_rank(comm, &rank);
+    MPI_Cart_coords(comm, rank, 3, coords);
+    MPI_Cart_get(comm, 3, dims, periods, coords);
+
+    npz = dims[0];
+    npy = dims[1];
+    npx = dims[2];
+    mz = coords[0];
+    my = coords[1];
+    mx = coords[2];
+
+    // get the line root:
+    *line_root = (rank/npx)*npx;
+
+    // get the line processes:
+    for (i=0; i<npx; i++) {
+        line_processes[i] = *line_root+i;
+        if (rank == 13) {
+            printf("%d\n", line_processes[i]);
+        }
+    }
+}
+
+
+
+
+void line_subarray(MPI_Comm comm, MPI_Datatype *subarray, int *lengths, int *displacements) {
+
+}
+
+void line_bcast(MPI_Comm comm, double *buf, int root) {
+
+}
+
+void line_allgather_faces(MPI_Comm comm, double *x, double *x_faces, int fact) {
+
+}
+
+void line_allgather(MPI_Comm comm, double *x, double *x_line) {
+
+}
+
 void nonperiodic_tridiagonal_solver(MPI_Comm comm, double* beta_local,
     double* gam_local, double* r_local, size_t system_size, double* x_local)
 {
@@ -58,7 +108,7 @@ void nonperiodic_tridiagonal_solver(MPI_Comm comm, double* beta_local,
         phi_local[i] = beta_local[i]*(r_local[i] - (1./4)*phi_local[i-1]);
         psi_local[i] = -(1./4)*beta_local[i]*psi_local[i-1];
     }
-    
+
     if (rank == nprocs-1) {
         phi_local[local_size-1] = beta_local[local_size-1]*(r_local[local_size-1] - 2*phi_local[local_size-2]);
         psi_local[local_size-1] = -2*beta_local[local_size-1]*psi_local[local_size-2];

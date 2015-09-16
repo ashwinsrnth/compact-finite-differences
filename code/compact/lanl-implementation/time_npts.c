@@ -48,9 +48,9 @@ int main (int argc, char* argv[])
     MPI_Cart_create(MPI_COMM_WORLD, 3, dims, periods, 0, &comm);
     MPI_Cart_coords(comm, rank, 3, coords);
 
-    mx = coords[0];
+    mz = coords[0];
     my = coords[1];
-    mz = coords[2];
+    mx = coords[2];
 
     /*
     Create a subarray type
