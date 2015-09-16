@@ -5,12 +5,12 @@ from scipy.linalg import solve_banded
 def solve_parallel(comm, rhs_local):
     '''
     Solve the tridiagonal system:
-    1/3       1       1/3     .       .       .
-      .       1/3     1.      1/3     .       .
-      .       .       1/3     1       1/3     .
-      .       .       .       .       .       .
-      .       .       .       .       .       .
-      .       .       .       .       .       .
+      1       2       .       .       .
+      1/4     1.      1/4     .       .
+      .       1/4     1       1/4     .
+      .       .       .       .       .
+      .       .       .       .       .
+      .       .       .       .       .
 
     in parallel,
     for some right-hand side `rhs_local`.
@@ -43,172 +43,325 @@ def scipy_solve_banded(a, b, c, rhs):
     x = solve_banded(l_and_u, ab, rhs)
     return x
 
-def precompute_beta_gam(comm, system_size):
+def get_line(comm, rank):
+    '''
+    Get the root and number of processes
+    in the x-direction for a given rank.
+    '''
+    size = comm.Get_size()
+    mz, my, mx = comm.Get_topo()[2]
+    npz, npy, npx = comm.Get_topo()[0]
+    procs_matrix = np.arange(size, dtype=int).reshape([npz, npy, npx])
+    line_root = procs_matrix[mz, my, 0]         # the root procs of this line
+    line_processes = procs_matrix[mz, my, :]    # all procs in this line
+    return line_root, line_processes
+
+def gatherFaces(comm, x, x_faces, face):
+
+    '''
+    Collects the left or right "faces" of
+    the array 'x' for each line of processes in the x-direction
+    '''
+
+    nprocs = comm.Get_size()
+    rank = comm.Get_rank()
+
+    nz, ny, nx = x.shape
+    npz, npy, npx = comm.Get_topo()[0]
+
+    # initialize lengths and displacements to 0
+    lengths = np.zeros(nprocs, dtype=int)
+    displacements = np.zeros(nprocs, dtype=int)
+
+    line_root, line_processes = get_line(comm, rank)
+    line_nprocs = len(line_processes)
+    line_last = line_processes[-1]
+
+    # only the processes in the line get lengths and displacements
+    lengths[line_processes] = 1
+    displacements[line_processes] = range(npx)
+
+    start_z, start_y, start_x = 0, 0, int(displacements[rank])
+    subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, npx],
+                        [nz, ny, 1], [start_z, start_y, start_x])
+    subarray = subarray_aux.Create_resized(0, 8)
+    subarray.Commit()
+
+    comm.Barrier()
+
+    if face == 'last':
+        x_face = x[:, :, -1].copy()
+    else:
+        x_face = x[:, :, 0].copy()
+
+    comm.Gatherv([x_face, MPI.DOUBLE], [x_faces, lengths, displacements, subarray], root=line_root)
+
+    for dest in range(line_root+1, line_last+1):
+        comm.Isend([x_faces, x_faces.size, MPI.DOUBLE], dest=dest, tag=dest*12)
+
+    if rank != line_root:
+        msg=comm.Irecv([x_faces, x_faces.size, MPI.DOUBLE], source=line_root, tag=rank*12)
+        msg.Wait()
+
+def allGatherLine(comm, x, x_line):
+
+    '''
+    Allgather scalar elements along a line in the x-direction
+    '''
+
+    nprocs = comm.Get_size()
+    rank = comm.Get_rank()
+
+    npz, npy, npx = comm.Get_topo()[0]
+
+    # initialize lengths and displacements to 0
+    lengths = np.zeros(nprocs, dtype=int)
+    displacements = np.zeros(nprocs, dtype=int)
+
+    line_root, line_processes = get_line(comm, rank)
+    line_nprocs = len(line_processes)
+    line_last = line_processes[-1]
+
+    # only the processes in the line get lengths and displacements
+    lengths[line_processes] = 1
+    displacements[line_processes] = range(npx)
+
+    comm.Barrier()
+
+    comm.Gatherv([x, 1, MPI.DOUBLE], [x_line, lengths, displacements, MPI.DOUBLE], root=line_root)
+
+    if rank == line_root:
+        for dest in range(line_root+1, line_last+1):
+            comm.Isend([x_line, x_line.size, MPI.DOUBLE], dest=dest, tag=dest*10)
+
+    if rank != line_root:
+        msg=comm.Irecv([x_line, x_line.size, MPI.DOUBLE], source=line_root, tag=rank*10)
+        msg.Wait()
+
+def precompute_beta_gam_dfdx(comm, NX, NY, NZ):
     # Pre-computes the beta and gam required
     # by the tridiagonal solver
     # The tridiagonal system has:
     # This needs to be done in a pipelined
     # manner, but only once.
-
-    # a[i] = 1./3
+    # a[i] = 1./4
     # b[i] = 1.0
-    # c[i] = 1./3
-
-    nprocs = comm.Get_size()
+    # c[i] = 1./4
+    '''
+    comm: Cartcomm
+    direction: 0=z, 1=y, 2=x
+    system_size: size in "direction" direction.
+    '''
     rank = comm.Get_rank()
-    local_size = system_size/nprocs
+    mz, my, mx = comm.Get_topo()[2]
+    npz, npy, npx = comm.Get_topo()[0]
+    nz, ny, nx = NZ/npz, NY/npy, NX/npx
 
-    beta_local = np.zeros(local_size, dtype=np.float64)
-    gamma_local = np.zeros(local_size, dtype=np.float64)
+    line_root, line_processes = get_line(comm, rank)
+    line_last = line_root + npx - 1
+    line_nprocs = len(line_processes)
 
+    beta_local = np.zeros(nx, dtype=np.float64)
+    gamma_local = np.zeros(nx, dtype=np.float64)
     last_beta = np.zeros(1, dtype=np.float64)
 
     # do a serial hand-off:
-    for r in range(nprocs):
+    for r in range(line_root, line_last+1):
         if rank == r:
-            if rank == 0:
+            if rank == line_root:
                 beta_local[0] = 1.0
                 gamma_local[0] = 0.0
             else:
                 comm.Recv([last_beta, 1, MPI.DOUBLE], source=rank-1, tag=10)
-                beta_local[0] = 1./(1. - (1./3)*last_beta*(1./3))
-                gamma_local[0] = last_beta*(1./3)
+                beta_local[0] = 1./(1. - (1./4)*last_beta*(1./4))
+                gamma_local[0] = last_beta*(1./4)
 
-            for i in range(1, local_size):
-                beta_local[i] = 1./(1. - (1./3)*beta_local[i-1]*(1./3))
-                gamma_local[i] = beta_local[i-1]*(1./3)
+            for i in range(1, nx):
+                if rank == line_root and i == 1:
+                    gamma_local[i] = beta_local[i-1]*2
+                else:
+                    gamma_local[i] = beta_local[i-1]*(1./4)
 
-            if rank != nprocs-1:
+                if rank == line_last and i == nx-1:
+                    beta_local[i] = 1./(1. - (2.0)*beta_local[i-1]*(1./4))
+                elif rank == line_root and i == 1:
+                    beta_local[i] = 1./(1. - (2.0)*beta_local[i-1]*(1./4))
+                else:
+                    beta_local[i] = 1./(1. - (1./4)*beta_local[i-1]*(1./4))
+            if rank != line_last:
                 comm.Send([beta_local[-1:], 1, MPI.DOUBLE], dest=rank+1, tag=10)
 
     return beta_local, gamma_local
 
-def nonperiodic_tridiagonal_solver(comm, beta_local, gam_local, r_local, system_size):
-    local_size = beta_local.size
-    x_local = np.zeros(local_size, dtype=np.float64)
-    u_local = np.zeros(local_size, dtype=np.float64)
+
+def dfdx_parallel(comm, beta_local, gam_local, r):
+
+    nz, ny, nx = r.shape
+
+    x = np.zeros_like(r, dtype=np.float64)
+    u = np.zeros_like(r, dtype=np.float64)
 
     rank = comm.Get_rank()
     nprocs = comm.Get_size()
+    mz, my, mx = comm.Get_topo()[2]
+    npz, npy, npx = comm.Get_topo()[0]
+    NZ, NY, NX = nz*npz, ny*npy, nx*npx
+
+    line_root, line_processes = get_line(comm, rank)
+    line_last = line_root + npx - 1
+    line_nprocs = len(line_processes)
 
     #############
     # L-R sweep
     #############
 
-    assert(system_size%nprocs == 0)
+    assert(npz*npy*npx == nprocs)
 
-    phi_local = np.zeros(local_size, dtype=np.float64)
-    psi_local = np.zeros(local_size, dtype=np.float64)
+    phi = np.zeros([nz, ny, nx], dtype=np.float64)
+    psi = np.zeros([nz, ny, nx], dtype=np.float64)
 
-    # each processor computes its phi and psi
-    if rank == 0:
-        phi_local[0] = 0
-        psi_local[0] = 1
+    # each processor computes its las phis and psis
+
+    if mx == 0:
+        phi[:, :, 0] = 0
+        psi[:, :, 0] = 1
     else:
-        phi_local[0] = beta_local[0]*r_local[0]
-        psi_local[0] = -(1./3)*beta_local[0]
+        phi[:, :, 0] = beta_local[0]*r[:, :, 0]
+        psi[:, :, 0] = -(1./4)*beta_local[0]
 
-    for i in range(1, local_size):
-        phi_local[i] = beta_local[i]*(r_local[i] - (1./3)*phi_local[i-1])
-        psi_local[i] = -(1./3)*beta_local[i]*psi_local[i-1]
+    for i in range(1, nx):
+        phi[:, :, i] = beta_local[i]*(r[:, :, i] - (1./4)*phi[:, :, i-1])
+        psi[:, :, i] = -(1./4)*beta_local[i]*psi[:, :, i-1]
+
+    if mx == npx-1:
+        phi[:, :, i] = beta_local[i]*(r[:, :, i] - 2*phi[:, :, i-1])
+        psi[:, :, i] = -2*beta_local[i]*psi[:, :, i-1]
 
     comm.Barrier()
 
     # each processor posts its last phi and psi
-    phi_lasts = np.zeros(nprocs, dtype=np.float64)
-    psi_lasts = np.zeros(nprocs, dtype=np.float64)
-    comm.Allgather([phi_local[-1:], MPI.DOUBLE], [phi_lasts, MPI.DOUBLE])
-    comm.Allgather([psi_local[-1:], MPI.DOUBLE], [psi_lasts, MPI.DOUBLE])
+    phi_lasts = np.zeros([nz, ny, npx], dtype=np.float64)
+    psi_lasts = np.zeros([nz, ny, npx], dtype=np.float64)
+
+    gatherFaces(comm, phi, phi_lasts, 'last')
+    gatherFaces(comm, psi, psi_lasts, 'last')
 
     # each processor uses the last phi and psi from the
     # previous processors to compute its u_tilda;
     # the first processor just uses u_0
 
-    u_first = np.zeros(1, dtype=np.float64)
-    if rank == 0:
-        u_local[0] = beta_local[0]*r_local[0]
-        u_tilda = u_local[0]
-        u_first[0] = u_local[0]
+    u_first = np.zeros([nz, ny], dtype=np.float64)
+    u_tilda = np.zeros([nz, ny], dtype=np.float64)
+    product_2 = np.zeros([nz, ny], dtype=np.float64)
+    product_1 = np.zeros([nz, ny], dtype=np.float64)
 
-    comm.Bcast([u_first, MPI.DOUBLE])
+    if mx == 0:
+        u[:, :, 0] = beta_local[0]*r[:, :, 0]
+        u_tilda[:, :] = u[:, :, 0]
+        u_first[:, :] = u[:, :, 0]
 
-    if rank != 0:
-        u_tilda = 0.0
-        product_2 = 1.0
-        for i in range(rank):
-            product_1 = 1.0
-            for j in range(i+1, rank):
-                product_1 *= psi_lasts[j]
-            u_tilda += phi_lasts[i]*product_1
-            product_2 *= psi_lasts[i]
+    comm.Barrier()
+
+    if rank == line_root:
+        for dest in range(line_root+1, line_last+1):
+            comm.Isend([u_first, MPI.DOUBLE], dest=dest, tag=dest*10)
+
+    if rank != line_root:
+        msg = comm.Irecv([u_first, MPI.DOUBLE], source=line_root, tag=rank*10)
+        msg.Wait()
+
+    if rank != line_root:
+        u_tilda[...] = 0.0
+        product_2[...] = 1.0
+        for i in range(mx):
+            product_1[...] = 1.0
+            for j in range(i+1, mx):
+                product_1 *= psi_lasts[:, :, j]
+            u_tilda += phi_lasts[:, :, i]*product_1
+            product_2 *= psi_lasts[:, :, i]
         u_tilda += u_first*product_2
 
     comm.Barrier()
 
     # Now, the entire `u` can be computed:
-    for i in range(local_size):
-        u_local[i] = phi_local[i] + u_tilda*psi_local[i]
+    for i in range(nx):
+        u[:, :, i] = phi[:, :, i] + u_tilda*psi[:, :, i]
 
     comm.Barrier()
+
+    print u[0, 1, :]
 
     #############
     # R-L sweep
     #############
 
     # each processor will need the first `gam` from the next processor:
-    gam_firsts = np.zeros(nprocs)
-    comm.Allgather([gam_local, 1, MPI.DOUBLE], [gam_firsts, MPI.DOUBLE])
+    gam_firsts = np.zeros(npx, dtype=np.float64)
+    allGatherLine(comm, gam_local, gam_firsts)
+    comm.Barrier()
 
-    if rank == nprocs-1:
-        phi_local[-1] = 0.0
-        psi_local[-1] = 1.0
+    if rank == line_last:
+        phi[:, :, -1] = 0.0
+        psi[:, :, -1] = 1.
     else:
-        phi_local[-1] = u_local[-1]
-        psi_local[-1] = -gam_firsts[rank+1]
+        phi[:, :, -1] = u[:, :, -1]
+        psi[:, :, -1] = -gam_firsts[mx+1]
 
-    for i in range(1, local_size):
-        phi_local[-1-i] = u_local[-1-i] - gam_local[-1-i+1]*phi_local[-1-i+1]
-        psi_local[-1-i] = -gam_local[-1-i+1]*psi_local[-1-i+1]
+    for i in range(1, nx):
+        phi[:, :, -1-i] = u[:, :, -1-i] - gam_local[-1-i+1]*phi[:, :, -1-i+1]
+        psi[:, :, -1-i] = -gam_local[-1-i+1]*psi[:, :, -1-i+1]
 
     comm.Barrier()
 
     # each processor posts its first phi and psi:
-    phi_firsts = np.zeros(nprocs, dtype=np.float64)
-    psi_firsts = np.zeros(nprocs, dtype=np.float64)
-    comm.Allgather([phi_local[0:1], MPI.DOUBLE], [phi_firsts, MPI.DOUBLE])
-    comm.Allgather([psi_local[0:1], MPI.DOUBLE], [psi_firsts, MPI.DOUBLE])
+    phi_firsts = np.zeros([nz, ny, npx], dtype=np.float64)
+    psi_firsts = np.zeros([nz, ny, npx], dtype=np.float64)
+
+    gatherFaces(comm, phi, phi_firsts, 'first')
+    gatherFaces(comm, psi, psi_firsts, 'first')
 
     # each processor uses the first phi and psi from the
     # next processors to compute its x_tilda;
     # the last processor just uses x_(n-1)
 
-    x_last = np.zeros(1, dtype=np.float64)
-    if rank == nprocs-1:
-        x_local[-1] = u_local[-1]
-        x_tilda = x_local[-1]
-        x_last[0] = x_tilda
+    x_last = np.zeros([nz, ny], dtype=np.float64)
+    x_tilda = np.zeros([nz, ny], dtype=np.float64)
 
-    comm.Bcast([x_last, MPI.DOUBLE], root=nprocs-1)
-
-    if rank != nprocs-1:
-        x_tilda = 0.0
-        for i in range(rank+2, nprocs):
-            product_1 = 1.0
-            for j in range(rank+1, i):
-                product_1 *= psi_firsts[j]
-            x_tilda += phi_firsts[i]*product_1
-
-        product_2 = 1.0
-        for i in range(rank+1, nprocs):
-            product_2 *= psi_firsts[i]
-
-        x_tilda += phi_firsts[rank+1] + x_last*product_2
+    if rank == line_last:
+        x[:, :, -1] = u[:, :, -1]
+        x_tilda[:, :] = x[:, :, -1]
+        x_last[:, :] = x_tilda[...]
 
     comm.Barrier()
 
-    for i in range(local_size):
-        x_local[-1-i] = phi_local[-1-i] + x_tilda*psi_local[-1-i]
+    if rank == line_last:
+        for dest in range(0, line_last):
+            comm.Isend([x_last, x_last.size, MPI.DOUBLE], dest=dest, tag=dest*11)
+
+    if rank != line_last:
+        msg = comm.Irecv([x_last, x_last.size, MPI.DOUBLE], source=line_last, tag=rank*11)
+        msg.Wait()
+
+    if rank != line_last:
+        x_tilda[...] = 0.0
+        for i in range(mx+2, line_nprocs):
+            product_1[...] = 1.0
+            for j in range(mx+1, i):
+                product_1 *= psi_firsts[:, :, j]
+            x_tilda += phi_firsts[:, :, i]*product_1
+
+        product_2[...] = 1.0
+        for i in range(mx+1, line_nprocs):
+            product_2 *= psi_firsts[:, :, i]
+
+        x_tilda += phi_firsts[:, :, mx+1] + x_last*product_2
 
     comm.Barrier()
 
-    return x_local
+    print u[1, 1, :]
+
+    for i in range(nx):
+        x[:, :, -1-i] = phi[:, :, -1-i] + x_tilda*psi[:, :, -1-i]
+
+    comm.Barrier()
+    return x
