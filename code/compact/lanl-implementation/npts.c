@@ -7,7 +7,7 @@
 
 
 void get_line_info(MPI_Comm comm, int *line_root, int *line_processes) {
-    int size, rank;
+    int rank;
     int mz, my, mx;
     int npz, npy, npx;
     int i;
@@ -37,10 +37,44 @@ void get_line_info(MPI_Comm comm, int *line_root, int *line_processes) {
 }
 
 
+void line_subarray(MPI_Comm comm, int *shape, int subarray_length, MPI_Datatype *subarray, int *lengths, int *displacements) {
+    int nprocs, rank;
+    int mz, my, mx;
+    int npz, npy, npx;
+    int i;
+    int dims[3], periods[3], coords[3];
+    MPI_Datatype subarray_aux;
+
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &nprocs);
+    MPI_Cart_coords(comm, rank, 3, coords);
+    MPI_Cart_get(comm, 3, dims, periods, coords);
+
+    npz = dims[0];
+    npy = dims[1];
+    npx = dims[2];
+    mz = coords[0];
+    my = coords[1];
+    mx = coords[2];
+
+    int line_root;
+    int line_processes[npx];
 
 
-void line_subarray(MPI_Comm comm, MPI_Datatype *subarray, int *lengths, int *displacements) {
+    get_line_info(comm, &line_root, line_processes);
 
+    for (i=0; i<npx; i++) {
+        lengths[line_processes[i]] = subarray_length;
+        displacements[line_proceses[i]] = i*subarray_length;
+    }
+
+    int sizes[3] = {shape[0], shape[1], shape[2]};
+    int subsizes[3] = {shape[0], shape[1], subarray_length};
+    int starts[3] = {0, 0, displacements[rank]};
+
+    MPI_Type_create_subarray(3, sizes, subsizes, starts, MPI_ORDER_C, MPI_DOUBLE, &subarray_aux);
+    MPI_Type_create_resized(subarray_aux, 0, 8, &subarray);
+    MPI_Type_commit(&subarray);
 }
 
 void line_bcast(MPI_Comm comm, double *buf, int root) {

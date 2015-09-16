@@ -62,8 +62,6 @@ int main (int argc, char* argv[])
     MPI_Type_create_subarray(3, sizes, subsizes, starts, MPI_ORDER_C, MPI_DOUBLE, &subarray_aux);
     MPI_Type_create_resized(subarray_aux, 0, 8, &subarray);
     MPI_Type_commit(&subarray);
-    MPI_Type_free(&subarray);
-
 
     /*
     Create the RHS
@@ -109,7 +107,7 @@ int main (int argc, char* argv[])
 
     /* Now every process has the RHS, solve the tridiagonal systems: */
 
-
+    MPI_Type_free(&subarray);
 
     if (rank == 0) {
         free(f_full);
