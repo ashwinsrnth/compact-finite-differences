@@ -10,14 +10,14 @@ rank = comm.Get_rank()
 
 #np.random.seed(1241851)
 
-npx = 2
-npy = 2
-npz = 2
+npx = 3
+npy = 3
+npz = 3
 
 comm = comm.Create_cart([npz, npy, npx], reorder=False)
 
-NX = 72
-NY = 36
+NX = 36
+NY = 18
 NZ = 36
 
 nx = NX/npx
@@ -52,4 +52,4 @@ if rank == 0:
             c[0] = 2.0
             x = scipy_solve_banded(a, b, c, r_full[i, j, :])
             assert_allclose(x, x_full[i, j, :])
-            print x, x_full[i, j, :]
+            

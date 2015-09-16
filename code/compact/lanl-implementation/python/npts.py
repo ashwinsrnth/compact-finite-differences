@@ -53,8 +53,54 @@ def get_line(comm, rank):
     npz, npy, npx = comm.Get_topo()[0]
     procs_matrix = np.arange(size, dtype=int).reshape([npz, npy, npx])
     line_root = procs_matrix[mz, my, 0]         # the root procs of this line
-    line_processes = procs_matrix[mz, my, :]    # all procs in this line
+    line_processes = list(procs_matrix[mz, my, :])    # all procs in this line
     return line_root, line_processes
+
+def lineSubarray(comm, shape, subarray_length):
+    '''
+    Subarray along a line of processes in a
+    larger 3-D domain
+    '''
+    nz, ny, nx = shape
+    npz, npy, npx = comm.Get_topo()[0]
+    rank = comm.Get_rank()
+    nprocs = comm.Get_size()
+
+    # initialize lengths and displacements to 0
+    lengths = np.zeros(nprocs, dtype=int)
+    displacements = np.zeros(nprocs, dtype=int)
+
+    line_root, line_processes = get_line(comm, rank)
+    line_nprocs = len(line_processes)
+    line_last = line_processes[-1]
+
+    # only the processes in the line get lengths and displacements
+    lengths[line_processes] = subarray_length
+    displacements[line_processes] = range(0, subarray_length*npx, subarray_length)
+
+    start_z, start_y, start_x = 0, 0, int(displacements[rank])
+    subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, npx],
+                        [nz, ny, subarray_length], [start_z, start_y, start_x])
+    subarray = subarray_aux.Create_resized(0, 8)
+    subarray.Commit()
+    return lengths, displacements, subarray
+
+def bcastLine(comm, buf, root):
+    rank = comm.Get_rank()
+    line_root, line_processes = get_line(comm, rank)
+    line_nprocs = len(line_processes)
+    line_last = line_processes[-1]
+    messages = []
+
+    line_processes.remove(root)
+
+    if rank == root:
+        for dest in line_processes:
+            comm.Isend([buf, buf.size, MPI.DOUBLE], dest=dest, tag=dest*10)
+    if rank != root:
+        messages.append(comm.Irecv([buf, buf.size, MPI.DOUBLE], source=root, tag=rank*10))
+
+    MPI.Request.Waitall(messages)
 
 def gatherFaces(comm, x, x_faces, face):
 
@@ -69,24 +115,9 @@ def gatherFaces(comm, x, x_faces, face):
     nz, ny, nx = x.shape
     npz, npy, npx = comm.Get_topo()[0]
 
-    # initialize lengths and displacements to 0
-    lengths = np.zeros(nprocs, dtype=int)
-    displacements = np.zeros(nprocs, dtype=int)
-
     line_root, line_processes = get_line(comm, rank)
-    line_nprocs = len(line_processes)
-    line_last = line_processes[-1]
 
-    # only the processes in the line get lengths and displacements
-    lengths[line_processes] = 1
-    displacements[line_processes] = range(npx)
-
-    start_z, start_y, start_x = 0, 0, int(displacements[rank])
-    subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, npx],
-                        [nz, ny, 1], [start_z, start_y, start_x])
-    subarray = subarray_aux.Create_resized(0, 8)
-    subarray.Commit()
-
+    lengths, displacements, subarray = lineSubarray(comm, (nz, ny, nx), 1)
     comm.Barrier()
 
     if face == 'last':
@@ -96,12 +127,7 @@ def gatherFaces(comm, x, x_faces, face):
 
     comm.Gatherv([x_face, MPI.DOUBLE], [x_faces, lengths, displacements, subarray], root=line_root)
 
-    for dest in range(line_root+1, line_last+1):
-        comm.Isend([x_faces, x_faces.size, MPI.DOUBLE], dest=dest, tag=dest*12)
-
-    if rank != line_root:
-        msg=comm.Irecv([x_faces, x_faces.size, MPI.DOUBLE], source=line_root, tag=rank*12)
-        msg.Wait()
+    bcastLine(comm, x_faces, line_root)
 
 def allGatherLine(comm, x, x_line):
 
@@ -130,13 +156,8 @@ def allGatherLine(comm, x, x_line):
 
     comm.Gatherv([x, 1, MPI.DOUBLE], [x_line, lengths, displacements, MPI.DOUBLE], root=line_root)
 
-    if rank == line_root:
-        for dest in range(line_root+1, line_last+1):
-            comm.Isend([x_line, x_line.size, MPI.DOUBLE], dest=dest, tag=dest*10)
+    bcastLine(comm, x_line, line_root)
 
-    if rank != line_root:
-        msg=comm.Irecv([x_line, x_line.size, MPI.DOUBLE], source=line_root, tag=rank*10)
-        msg.Wait()
 
 def precompute_beta_gam_dfdx(comm, NX, NY, NZ):
     # Pre-computes the beta and gam required
@@ -262,13 +283,7 @@ def dfdx_parallel(comm, beta_local, gam_local, r):
 
     comm.Barrier()
 
-    if rank == line_root:
-        for dest in range(line_root+1, line_last+1):
-            comm.Isend([u_first, MPI.DOUBLE], dest=dest, tag=dest*10)
-
-    if rank != line_root:
-        msg = comm.Irecv([u_first, MPI.DOUBLE], source=line_root, tag=rank*10)
-        msg.Wait()
+    bcastLine(comm, u_first, line_root)
 
     if rank != line_root:
         u_tilda[...] = 0.0
@@ -288,8 +303,6 @@ def dfdx_parallel(comm, beta_local, gam_local, r):
         u[:, :, i] = phi[:, :, i] + u_tilda*psi[:, :, i]
 
     comm.Barrier()
-
-    print u[0, 1, :]
 
     #############
     # R-L sweep
@@ -334,13 +347,7 @@ def dfdx_parallel(comm, beta_local, gam_local, r):
 
     comm.Barrier()
 
-    if rank == line_last:
-        for dest in range(0, line_last):
-            comm.Isend([x_last, x_last.size, MPI.DOUBLE], dest=dest, tag=dest*11)
-
-    if rank != line_last:
-        msg = comm.Irecv([x_last, x_last.size, MPI.DOUBLE], source=line_last, tag=rank*11)
-        msg.Wait()
+    bcastLine(comm, x_last, line_last)
 
     if rank != line_last:
         x_tilda[...] = 0.0
@@ -357,8 +364,6 @@ def dfdx_parallel(comm, beta_local, gam_local, r):
         x_tilda += phi_firsts[:, :, mx+1] + x_last*product_2
 
     comm.Barrier()
-
-    print u[1, 1, :]
 
     for i in range(nx):
         x[:, :, -1-i] = phi[:, :, -1-i] + x_tilda*psi[:, :, -1-i]
