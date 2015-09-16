@@ -1,26 +1,29 @@
 #include <npts.h>
 #include <arraytools.h>
-#include <stdio.h>
 #include <mpi.h>
+#include <math.h>
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+#include <stdio.h>
 #include <sys/time.h>
-#include <math.h>
+#include <time.h>
+
+#define PI 3.14159265359
 
 int main (int argc, char* argv[])
 {
     MPI_Init(&argc, &argv);
 
+    MPI_Comm comm;
     int rank, nprocs;
-    double *f_global, *d_global;
+    double *f_line, *d_line;
     double *beta_local, *gam_local, *r_local, *x_local, *f_local, *d_local;
-    double L, dx;
-    unsigned int *seeds;
-    unsigned int local_seed;
     double t1, t2;
-    int local_size, NX, NY, NZ;
-    int i, j;
+    int nx, ny, nz, NX, NY, NZ;
+    int npx, npy, npz, mx, my, mz;
+    int coords[3];
+    int i, j, k;
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
@@ -28,96 +31,94 @@ int main (int argc, char* argv[])
     NZ = atoi(argv[1]);
     NY = atoi(argv[2]);
     NX = atoi(argv[3]);
+    npz = atoi(argv[4]);
+    npy = atoi(argv[5]);
+    npx = atoi(argv[6]);
 
-    local_size = NX/nprocs;
+    nx = NX/npz;
+    ny = NY/npy;
+    nz = NZ/npz;
 
-    beta_local = (double*) malloc(local_size*sizeof(double));
-    gam_local = (double*) malloc(local_size*sizeof(double));
-    r_local = (double*) malloc(local_size*sizeof(double));
-    x_local = (double*) malloc(local_size*sizeof(double));
+    assert(nprocs==npz*npy*npz);
 
-    /* Generate random RHS elements: */
+    /* Create communicator */
+    const int dims[3] = {npz, npy, npx};
+    const int periods[3] = {0, 0, 0};
+
+    MPI_Cart_create(MPI_COMM_WORLD, 3, dims, periods, 0, &comm);
+    MPI_Cart_coords(comm, rank, 3, coords);
+
+    mx = coords[0];
+    my = coords[1];
+    mz = coords[2];
+
+    /*
+    Create a subarray type
+    */
+    int sizes[3] = {NZ, NY, NX};
+    int subsizes[3] = {nz, ny, nx};
+    int starts[3] = {mz*npz, my*npy, mx*npx};
+    MPI_Datatype subarray_aux, subarray;
+    MPI_Type_create_subarray(3, sizes, subsizes, starts, MPI_ORDER_C, MPI_DOUBLE, &subarray_aux);
+    MPI_Type_create_resized(subarray_aux, 0, 8, &subarray);
+    MPI_Type_commit(&subarray);
+    MPI_Type_free(&subarray);
+
+
+    /*
+    Create the RHS
+    */
+
+    double *f_full, *d_full;
+    double dx = 2.0*PI/(NX-1);
+    int i3d, i_1, i_N;
+
     if (rank == 0) {
-        f_global = (double*) malloc(NX*sizeof(double));
-        d_global = (double*) malloc(NX*sizeof(double));
-    } 
+        f_full = (double*) malloc(NZ*NY*NX*sizeof(double));
+        d_full = (double*) malloc(NZ*NY*NX*sizeof(double));
 
-    f_local = (double*) malloc(NX*sizeof(double));
-    d_local = (double*) malloc(NX*sizeof(double));
-
-    L = (2*3.14159265359);
-    dx = L/(NX-1);
-
-    if (rank == 0) {
-        // create the function and rhs at rank=0
-        for (i=0; i<NX; i++) {
-            f_global[i] = sin(i*dx);
+        for(i=0; i<NZ; i++) {
+            for(j=0; j<NY; j++) {
+                for (k=0; k < NX; k++) {
+                    i3d = i*(NX*NY) + j*NX + k;
+                    f_full[i3d] = sin(k*dx);
+                }
+            }
         }
 
-        for (i=1; i<NX-1; i++) {
-            d_global[i] = (3./4)*(f_global[i+1] - f_global[i-1])/dx;            
+        for(i=0; i<NZ; i++) {
+            for(j=0; j<NY; j++) {
+                for (k=1; k<NX-1; k++) {
+                    i3d = i*(NX*NY) + j*NX + k;
+                    d_full[i3d] = (3./4)*(f_full[i3d+1] - f_full[i3d-1])/dx;
+                 }
+                i_1 = i*(NX*NY) + j*NX + 0;
+                i_N = i*(NX*NY) + j*NX + NX-1;
+                d_full[i_1] = (-5*f_full[i_1] + 4*f_full[i_1+1] + f_full[i_1+2])/(2*dx);
+                d_full[i_N] = (-5*f_full[i_N-1] + 4*f_full[i_N-2] + f_full[i_1-3])/(-2*dx);
+            }
         }
-        d_global[0] = (-5*f_global[0] + 4*f_global[1] + f_global[2])/(2*dx);
-        d_global[NX-1] = (-5*f_global[NX-1] + 4*f_global[NX-2] + f_global[NX-3])/(-2*dx);
+
     }
 
-    MPI_Scatter(d_global, local_size, MPI_DOUBLE, d_local, local_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    /* Scatter the RHS */
+    double *d_global;
+    d_global = (double*) malloc(nz*ny*nx*sizeof(double));
+
+    MPI_Scatter(d_full, 1, subarray, d_global, nz*ny*nx, MPI_DOUBLE, 0, comm);
+
+    /* Now every process has the RHS, solve the tridiagonal systems: */
+
+
 
     if (rank == 0) {
-        FILE* f;
-        f = fopen("d.txt", "w");
-        for (i=0; i<NX; i++) {
-            fprintf(f, "%.12f\n", d_global[i]);    
-        }
-        fclose(f);
-    }
-    
-    // Solve the system in parallel 
-    precompute_beta_gam(MPI_COMM_WORLD, NX, beta_local, gam_local);
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    t1 = MPI_Wtime();
-    for (i=0; i<NZ; i++) {
-        for (j=0; j<NY; j++) {
-            nonperiodic_tridiagonal_solver(MPI_COMM_WORLD, beta_local, gam_local,
-                d_local, NX, x_local);
-            MPI_Barrier(MPI_COMM_WORLD);
-        }
+        free(f_full);
+        free(d_full);
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
-    t2 = MPI_Wtime();
-    if (rank == 0) {
-        printf("Running with %d processors in one line.\n", nprocs);
-        printf("Corresponds to %d processors in total.\n", (NX/NZ)*(NX/NY)*nprocs);
-        printf("Full simulation requires %d nodes in total.\n", (NX/NZ)*(NX/NY)*nprocs/16);
-        printf("Total size of problem solved: (%d, %d, %d)\n", NZ, NY, NX);
-        printf("Time taken: %f\n", t2-t1);
-    }
-
-    MPI_Gather(x_local, local_size, MPI_DOUBLE, f_global, local_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-    if (rank == 0) {
-        FILE* f;
-        f = fopen("x.txt", "w");
-        for (i=0; i<NX; i++) {
-            fprintf(f, "%.12f\n", f_global[i]);
-        }
-        fclose(f);
-    } 
-    
-    if (rank == 0) {
-        free(f_global);
-        free(d_global);
-    }
-
-    free(beta_local);
-    free(gam_local);
-    free(r_local);
-    free(x_local);
-    free(f_local);
-    free(d_local);
+    free(d_global);
 
     MPI_Finalize();
+
     return 0;
 }
