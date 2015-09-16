@@ -110,9 +110,8 @@ def line_bcast(comm, buf, root):
         for dest in line_processes:
             comm.Isend([buf, buf.size, MPI.DOUBLE], dest=dest, tag=dest*10)
     if rank != root:
-        messages.append(comm.Irecv([buf, buf.size, MPI.DOUBLE], source=root, tag=rank*10))
-
-    MPI.Request.Waitall(messages)
+        message = (comm.Irecv([buf, buf.size, MPI.DOUBLE], source=root, tag=rank*10))
+        MPI.Request.Wait(message)
 
 def line_allgather_faces(comm, x, x_faces, face):
 
