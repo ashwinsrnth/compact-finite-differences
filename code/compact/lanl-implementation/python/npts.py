@@ -43,12 +43,18 @@ def scipy_solve_banded(a, b, c, rhs):
     x = solve_banded(l_and_u, ab, rhs)
     return x
 
-def get_line(comm, rank):
+
+# The following functions work for lines along the
+# x-direction only. Consider a "dir" parameter
+# that will generalize them.
+
+def get_line_info(comm):
     '''
     Get the root and number of processes
-    in the x-direction for a given rank.
+    in the x-direction.
     '''
     size = comm.Get_size()
+    rank = comm.Get_rank()
     mz, my, mx = comm.Get_topo()[2]
     npz, npy, npx = comm.Get_topo()[0]
     procs_matrix = np.arange(size, dtype=int).reshape([npz, npy, npx])
@@ -56,10 +62,12 @@ def get_line(comm, rank):
     line_processes = list(procs_matrix[mz, my, :])    # all procs in this line
     return line_root, line_processes
 
-def lineSubarray(comm, shape, subarray_length):
+def line_subarray(comm, shape, subarray_length):
     '''
-    Subarray along a line of processes in a
-    larger 3-D domain
+    For each block in a line in the x-direction, shaped [nz, ny, nx],
+    get a "subarray" MPI datatype shaped [nz, ny, subarray_length].
+    Also get the "lengths" and "displacements" parameters for
+    scatter and gather operations with these subarrays
     '''
     nz, ny, nx = shape
     npz, npy, npx = comm.Get_topo()[0]
@@ -70,7 +78,7 @@ def lineSubarray(comm, shape, subarray_length):
     lengths = np.zeros(nprocs, dtype=int)
     displacements = np.zeros(nprocs, dtype=int)
 
-    line_root, line_processes = get_line(comm, rank)
+    line_root, line_processes = get_line_info(comm)
     line_nprocs = len(line_processes)
     line_last = line_processes[-1]
 
@@ -85,9 +93,13 @@ def lineSubarray(comm, shape, subarray_length):
     subarray.Commit()
     return lengths, displacements, subarray
 
-def bcastLine(comm, buf, root):
+def line_bcast(comm, buf, root):
+    '''
+    Perform a broadcast of "buf" from root "root" to all processes
+    in the line
+    '''
     rank = comm.Get_rank()
-    line_root, line_processes = get_line(comm, rank)
+    line_root, line_processes = get_line_info(comm)
     line_nprocs = len(line_processes)
     line_last = line_processes[-1]
     messages = []
@@ -102,11 +114,10 @@ def bcastLine(comm, buf, root):
 
     MPI.Request.Waitall(messages)
 
-def gatherFaces(comm, x, x_faces, face):
+def line_allgather_faces(comm, x, x_faces, face):
 
     '''
-    Collects the left or right "faces" of
-    the array 'x' for each line of processes in the x-direction
+    gather
     '''
 
     nprocs = comm.Get_size()
@@ -115,9 +126,9 @@ def gatherFaces(comm, x, x_faces, face):
     nz, ny, nx = x.shape
     npz, npy, npx = comm.Get_topo()[0]
 
-    line_root, line_processes = get_line(comm, rank)
+    line_root, line_processes = get_line_info(comm)
 
-    lengths, displacements, subarray = lineSubarray(comm, (nz, ny, nx), 1)
+    lengths, displacements, subarray = line_subarray(comm, (nz, ny, nx), 1)
     comm.Barrier()
 
     if face == 'last':
@@ -127,9 +138,9 @@ def gatherFaces(comm, x, x_faces, face):
 
     comm.Gatherv([x_face, MPI.DOUBLE], [x_faces, lengths, displacements, subarray], root=line_root)
 
-    bcastLine(comm, x_faces, line_root)
+    line_bcast(comm, x_faces, line_root)
 
-def allGatherLine(comm, x, x_line):
+def line_allgather(comm, x, x_line):
 
     '''
     Allgather scalar elements along a line in the x-direction
@@ -144,7 +155,7 @@ def allGatherLine(comm, x, x_line):
     lengths = np.zeros(nprocs, dtype=int)
     displacements = np.zeros(nprocs, dtype=int)
 
-    line_root, line_processes = get_line(comm, rank)
+    line_root, line_processes = get_line_info(comm)
     line_nprocs = len(line_processes)
     line_last = line_processes[-1]
 
@@ -156,7 +167,7 @@ def allGatherLine(comm, x, x_line):
 
     comm.Gatherv([x, 1, MPI.DOUBLE], [x_line, lengths, displacements, MPI.DOUBLE], root=line_root)
 
-    bcastLine(comm, x_line, line_root)
+    line_bcast(comm, x_line, line_root)
 
 
 def precompute_beta_gam_dfdx(comm, NX, NY, NZ):
@@ -178,7 +189,7 @@ def precompute_beta_gam_dfdx(comm, NX, NY, NZ):
     npz, npy, npx = comm.Get_topo()[0]
     nz, ny, nx = NZ/npz, NY/npy, NX/npx
 
-    line_root, line_processes = get_line(comm, rank)
+    line_root, line_processes = get_line_info(comm)
     line_last = line_root + npx - 1
     line_nprocs = len(line_processes)
 
@@ -228,7 +239,7 @@ def dfdx_parallel(comm, beta_local, gam_local, r):
     npz, npy, npx = comm.Get_topo()[0]
     NZ, NY, NX = nz*npz, ny*npy, nx*npx
 
-    line_root, line_processes = get_line(comm, rank)
+    line_root, line_processes = get_line_info(comm)
     line_last = line_root + npx - 1
     line_nprocs = len(line_processes)
 
@@ -264,8 +275,8 @@ def dfdx_parallel(comm, beta_local, gam_local, r):
     phi_lasts = np.zeros([nz, ny, npx], dtype=np.float64)
     psi_lasts = np.zeros([nz, ny, npx], dtype=np.float64)
 
-    gatherFaces(comm, phi, phi_lasts, 'last')
-    gatherFaces(comm, psi, psi_lasts, 'last')
+    line_allgather_faces(comm, phi, phi_lasts, 'last')
+    line_allgather_faces(comm, psi, psi_lasts, 'last')
 
     # each processor uses the last phi and psi from the
     # previous processors to compute its u_tilda;
@@ -283,7 +294,7 @@ def dfdx_parallel(comm, beta_local, gam_local, r):
 
     comm.Barrier()
 
-    bcastLine(comm, u_first, line_root)
+    line_bcast(comm, u_first, line_root)
 
     if rank != line_root:
         u_tilda[...] = 0.0
@@ -310,7 +321,7 @@ def dfdx_parallel(comm, beta_local, gam_local, r):
 
     # each processor will need the first `gam` from the next processor:
     gam_firsts = np.zeros(npx, dtype=np.float64)
-    allGatherLine(comm, gam_local, gam_firsts)
+    line_allgather(comm, gam_local, gam_firsts)
     comm.Barrier()
 
     if rank == line_last:
@@ -330,8 +341,8 @@ def dfdx_parallel(comm, beta_local, gam_local, r):
     phi_firsts = np.zeros([nz, ny, npx], dtype=np.float64)
     psi_firsts = np.zeros([nz, ny, npx], dtype=np.float64)
 
-    gatherFaces(comm, phi, phi_firsts, 'first')
-    gatherFaces(comm, psi, psi_firsts, 'first')
+    line_allgather_faces(comm, phi, phi_firsts, 'first')
+    line_allgather_faces(comm, psi, psi_firsts, 'first')
 
     # each processor uses the first phi and psi from the
     # next processors to compute its x_tilda;
@@ -347,7 +358,7 @@ def dfdx_parallel(comm, beta_local, gam_local, r):
 
     comm.Barrier()
 
-    bcastLine(comm, x_last, line_last)
+    line_bcast(comm, x_last, line_last)
 
     if rank != line_last:
         x_tilda[...] = 0.0
