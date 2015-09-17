@@ -25,7 +25,6 @@ int main (int argc, char* argv[])
     int coords[3];
     int i, j, k;
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
     NZ = atoi(argv[1]);
@@ -46,6 +45,7 @@ int main (int argc, char* argv[])
     const int periods[3] = {0, 0, 0};
 
     MPI_Cart_create(MPI_COMM_WORLD, 3, dims, periods, 0, &comm);
+    MPI_Comm_rank(comm, &rank);
     MPI_Cart_coords(comm, rank, 3, coords);
 
     mz = coords[0];
@@ -71,53 +71,52 @@ int main (int argc, char* argv[])
     double dx = 2.0*PI/(NX-1);
     int i3d, i_1, i_N;
 
-    if (rank == 0) {
-        f_full = (double*) malloc(NZ*NY*NX*sizeof(double));
-        d_full = (double*) malloc(NZ*NY*NX*sizeof(double));
+    f_full = (double*) malloc(NZ*NY*NX*sizeof(double));
+    d_full = (double*) malloc(NZ*NY*NX*sizeof(double));
 
-        for(i=0; i<NZ; i++) {
-            for(j=0; j<NY; j++) {
-                for (k=0; k < NX; k++) {
-                    i3d = i*(NX*NY) + j*NX + k;
-                    f_full[i3d] = sin(k*dx);
-                }
+    for(i=0; i<NZ; i++) {
+        for(j=0; j<NY; j++) {
+            for (k=0; k < NX; k++) {
+                i3d = i*(NX*NY) + j*NX + k;
+                f_full[i3d] = sin(k*dx);
             }
         }
+    }
 
-        // for(i=0; i<NZ; i++) {
-        //     for(j=0; j<NY; j++) {
-        //         for (k=1; k<NX-1; k++) {
-        //             i3d = i*(NX*NY) + j*NX + k;
-        //             d_full[i3d] = (3./4)*(f_full[i3d+1] - f_full[i3d-1])/dx;
-        //          }
-        //         i_1 = i*(NX*NY) + j*NX + 0;
-        //         i_N = i*(NX*NY) + j*NX + NX-1;
-        //         d_full[i_1] = (-5*f_full[i_1] + 4*f_full[i_1+1] + f_full[i_1+2])/(2*dx);
-        //         d_full[i_N] = (-5*f_full[i_N] + 4*f_full[i_N-1] + f_full[i_1-2])/(-2*dx);
-        //     }
-        // }
-
-        for(i=0; i<NZ; i++) {
-            for(j=0; j<NY; j++) {
-                for (k=0; k<NX; k++) {
-                    i3d = i*(NX*NY) + j*NX + k;
-                    d_full[i3d] = 1.0;
-                 }
-            }
+    for(i=0; i<NZ; i++) {
+        for(j=0; j<NY; j++) {
+            for (k=1; k<NX-1; k++) {
+                i3d = i*(NX*NY) + j*NX + k;
+                d_full[i3d] = (3./4)*(f_full[i3d+1] - f_full[i3d-1])/dx;
+             }
+            i_1 = i*(NX*NY) + j*NX + 0;
+            i_N = i*(NX*NY) + j*NX + NX-1;
+            d_full[i_1] = (-5*f_full[i_1] + 4*f_full[i_1+1] + f_full[i_1+2])/(2*dx);
+            d_full[i_N] = (-5*f_full[i_N] + 4*f_full[i_N-1] + f_full[i_N-2])/(-2*dx);
         }
-
     }
 
     /* Scatter the RHS */
     d_global = (double*) malloc(nz*ny*nx*sizeof(double));
+    int lengths[nprocs];
 
-    MPI_Scatter(d_full, 1, subarray, d_global, nz*ny*nx, MPI_DOUBLE, 0, comm);
+    for (i=0; i<nprocs; i++) {
+        lengths[i] = 1;
+    }
+
+    /* Everyone computes a start index: */
+    int start_index = mz*nz*(NX*NY) + my*ny*(NX) + mx*nx;
+    int displacements[nprocs];
+    MPI_Gather(&start_index, 1, MPI_INT, displacements, 1, MPI_INT, 0, comm);
+
+    MPI_Scatterv(d_full, lengths, displacements, subarray, d_global, nz*ny*nx, MPI_DOUBLE, 0, comm);
 
     /* Now every process has the RHS, solve the tridiagonal systems: */
     beta_global =  (double*) malloc(nx*sizeof(double));
     gamma_global = (double*) malloc(nx*sizeof(double));
     precompute_beta_gam(comm, NX, NY, NZ, beta_global,\
         gamma_global);
+
 
     x_global = (double*) malloc(nz*ny*nx*sizeof(double));
     u_global = (double*) malloc(nz*ny*nx*sizeof(double));
@@ -134,13 +133,26 @@ int main (int argc, char* argv[])
 
     nonperiodic_tridiagonal_solver(comm, NX, NY, NZ, beta_global, gamma_global, d_global, x_global, u_global);
 
+    MPI_Barrier(comm);
+
+    MPI_Gatherv(x_global, ny*nx*nz, MPI_DOUBLE, d_full, lengths, displacements, subarray, 0, comm);
+    MPI_Barrier(comm);
     MPI_Type_free(&subarray);
+
+    if (rank == 0) {
+        for (k=0; k<NX; k++) {
+            i3d = (0)*(NX*NY) + (0)*(NX) + k;
+            printf("%f\n", d_full[i3d]);
+        }
+    }
 
     if (rank == 0) {
         free(f_full);
         free(d_full);
     }
 
+    free(x_global);
+    free(u_global);
     free(beta_global);
     free(gamma_global);
     free(d_global);
