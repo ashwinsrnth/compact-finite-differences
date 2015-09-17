@@ -60,7 +60,6 @@ void line_subarray(MPI_Comm comm, int *shape, int subarray_length, MPI_Datatype 
     int line_root;
     int line_processes[npx];
 
-
     get_line_info(comm, &line_root, line_processes);
 
     for (i=0; i<npx; i++) {
@@ -68,7 +67,7 @@ void line_subarray(MPI_Comm comm, int *shape, int subarray_length, MPI_Datatype 
         displacements[line_proceses[i]] = i*subarray_length;
     }
 
-    int sizes[3] = {shape[0], shape[1], shape[2]};
+    int sizes[3] = {shape[0], shape[1], npx};
     int subsizes[3] = {shape[0], shape[1], subarray_length};
     int starts[3] = {0, 0, displacements[rank]};
 
@@ -77,15 +76,127 @@ void line_subarray(MPI_Comm comm, int *shape, int subarray_length, MPI_Datatype 
     MPI_Type_commit(&subarray);
 }
 
-void line_bcast(MPI_Comm comm, double *buf, int root) {
+void line_bcast(MPI_Comm comm, double *buf, int count, int root) {
+    int rank;
+    int mz, my, mx;
+    int npz, npy, npx;
+    int i;
+    int dims[3], periods[3], coords[3];
+
+    MPI_Comm_rank(comm, &rank);
+    MPI_Cart_coords(comm, rank, 3, coords);
+    MPI_Cart_get(comm, 3, dims, periods, coords);
+
+    npz = dims[0];
+    npy = dims[1];
+    npx = dims[2];
+    mz = coords[0];
+    my = coords[1];
+    mx = coords[2];
+
+    int line_root;
+    int line_processes[npx];
+    MPI_Request message;
+
+    get_line_info(comm, &line_root, line_processes);
+
+    if (rank == root) {
+        for (i=0; i<npx; i++) {
+            if (line_processes[i] != root) {
+                MPI_Isend(buf, count, MPI_DOUBLE, line_processes[i], line_processes[i]*10, comm, &message);
+            }
+        }
+    }
+
+    if (rank != root) {
+        MPI_Irecv(buf, count, MPI_DOUBLE, root, rank*10, comm, &message);
+        MPI_Wait(&message, MPI_STATUS_IGNORE);
+    }
 
 }
 
-void line_allgather_faces(MPI_Comm comm, double *x, double *x_faces, int fact) {
+void line_allgather_faces(MPI_Comm comm, double *x, int *shape, double *x_faces, int face) {
+    /*
+    Gather the left or right faces from each
+    process into the line_root and the broadcast it.
 
+    face: 0 - left
+          1 - right
+    */
+
+    int rank, nprocs;
+    int mz, my, mx;
+    int npz, npy, npx;
+    int nz, ny, nx;
+    int i, j, k, i3d, i2d;
+    int dims[3], periods[3], coords[3];
+
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &nprocs);
+    MPI_Cart_coords(comm, rank, 3, coords);
+    MPI_Cart_get(comm, 3, dims, periods, coords);
+
+    npz = dims[0];
+    npy = dims[1];
+    npx = dims[2];
+    mz = coords[0];
+    my = coords[1];
+    mx = coords[2];
+    nx = shape[0];
+    ny = shape[1];
+    nz = shape[2];
+
+    int line_root;
+    int line_processes[npx];
+
+    get_line_info(comm, &line_root, line_processes);
+
+    int lengths[nprocs];
+    int displacements[nprocs];
+    MPI_Datatype subarray;
+
+    line_subarray(comm, shape, 1, &subarray, lengths, displacements);
+
+    double *x_face;
+    x_face = (double*) malloc((nz*ny)*sizeof(double));
+
+    // left:
+    if (face == 0) {
+        for (i=0; i<nz; i++) {
+            for (j=0; j<ny; j++) {
+                i2d = i*ny + j;
+                i3d = i*(nx*ny) + j*nx + 0;
+                x_face[i2d] = x[i3d];
+            }
+        }
+    }
+
+    else if (face == 1) {
+        for (i=0; i<nz; i++) {
+            for (j=0; j<ny; j++) {
+                i2d = i*ny + j;
+                i3d = i*(nx*ny) + j*nx + nx-1;
+                x_face[i2d] = x[i3d];
+            }
+        }
+    }
+
+    else {
+        printf("Error: specify a valid face flag.");
+    }
+
+    MPI_Barrier(comm);
+
+    MPI_Gatherv(x_face, nz*ny, MPI_DOUBLE, x_faces, lengths, displacements, subarray, line_root, comm);
+    line_bcast(comm, x_faces, nz*ny*npx, line_root);
+
+    free(x_face);
+    MPI_Type_free(&subarray);
 }
 
 void line_allgather(MPI_Comm comm, double *x, double *x_line) {
+
+
 
 }
 
