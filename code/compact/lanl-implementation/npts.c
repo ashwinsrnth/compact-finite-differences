@@ -355,7 +355,7 @@ void nonperiodic_tridiagonal_solver(MPI_Comm comm, int NX, int NY, int NZ, doubl
                 for (ii=0; ii<mx; ii++) {
                     product_1 = 1.0;
                     for (jj=ii+1; jj<mx; jj++) {
-                        i3d = i*(mx*ny) + j*mx + jj;
+                        i3d = i*(npx*ny) + j*npx + jj;
                         product_1 *= psi_lasts[i3d];
                     }
                     i3d = i*(npx*ny) + j*npx + ii;
@@ -371,7 +371,7 @@ void nonperiodic_tridiagonal_solver(MPI_Comm comm, int NX, int NY, int NZ, doubl
         for (j=0; j<ny; j++) {
             for (k=0; k<nx; k++) {
                 i3d = i*(nx*ny) + j*nx + k;
-                i2d = i*(ny) + j;
+                i2d = i*ny + j;
                 u_global[i3d] = phi[i3d] + u_tilda[i2d]*psi[i3d];
             }
         }
@@ -407,9 +407,76 @@ void nonperiodic_tridiagonal_solver(MPI_Comm comm, int NX, int NY, int NZ, doubl
         }
     }
 
-    printf("%f\n", phi[0]);
+    MPI_Barrier(comm);
+
+    double *phi_firsts, *psi_firsts;
+    phi_firsts = (double*) malloc(nz*ny*npx*sizeof(double));
+    psi_firsts = (double*) malloc(nz*ny*npx*sizeof(double));
+
+    line_allgather_faces(comm, phi, shape, phi_firsts, 0);
+    line_allgather_faces(comm, psi, shape, psi_firsts, 0);
+
+    double *x_tilda, *x_last;
+    x_tilda = (double*) malloc(nz*ny*sizeof(double));
+    x_last = (double*) malloc(nz*ny*sizeof(double));
+
+    if (rank == line_last) {
+        for (i=0; i<nz; i++) {
+            for (j=0; j<ny; j++) {
+                i3d = i*(nx*ny) + j*nx + nx-1;
+                i2d = i*ny + j;
+                x_global[i3d] = u_global[i3d];
+                x_tilda[i2d] = x_global[i3d];
+                x_last[i2d] = x_tilda[i2d];
+            }
+        }
+    }
+
+    MPI_Barrier(comm);
+    line_bcast(comm, x_last, nz*ny, line_last);
+
+    if (rank != line_last) {
+        for (i=0; i<nz; i++) {
+            for (j=0; j<ny; j++) {
+                i2d = i*ny + j;
+                x_tilda[i2d] = 0.0;
+                for (ii=mx+2; ii<npx; ii++) {
+                    product_1 = 0.0;
+                    for (jj=mx+1; ii; jj++) {
+                        i3d = i*(npx*ny) + j*npx + jj;
+                        product_1 *= psi_firsts[i3d];
+                    }
+                    i3d = i*(npx*ny) + j*npx + ii;
+                    x_tilda[i2d] += phi_firsts[i3d]*product_1;
+                }
+                product_2 = 1.0;
+                for (ii=mx+1; ii<npx; ii++) {
+                    i3d = i*(npx*ny) + j*npx + ii;
+                    product_2 *= psi_firsts[i3d];
+                }
+                i3d = i*(npx*ny) + j*npx + mx+1;
+                x_tilda[i2d] += phi_firsts[i3d] + x_last[i2d]*product_2;
+            }
+        }
+    }
+
+    for (i=0; i<nz; i++) {
+        for (j=0; j<ny; j++) {
+            for (k=0; k<nx; k++) {
+                i3d = i*(nx*ny) + j*nx + nx-1;
+                i2d = i*ny + j;
+                x_global[i3d-k] = phi[i3d-k] + x_tilda[i2d]*psi[i3d-k];
+            }
+        }
+    }
+
+    i3d = (nz-1)*(nx*ny) + (ny-1)*nx + nx-1;
+
+    printf("%f\n", x_global[i3d]);
 
     free(gam_firsts);
+    free(phi_firsts);
+    free(psi_firsts);
     free(phi);
     free(psi);
     free(phi_lasts);
