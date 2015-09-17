@@ -9,7 +9,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define PI 3.14159265359
+#define PI 3.141592653589793238462643383
 
 int main (int argc, char* argv[])
 {
@@ -35,11 +35,11 @@ int main (int argc, char* argv[])
     npy = atoi(argv[5]);
     npx = atoi(argv[6]);
 
-    nx = NX/npz;
+    nx = NX/npx;
     ny = NY/npy;
     nz = NZ/npz;
 
-    assert(nprocs==npz*npy*npz);
+    assert(nprocs==npx*npy*npz);
 
     /* Create communicator */
     const int dims[3] = {npz, npy, npx};
@@ -57,7 +57,7 @@ int main (int argc, char* argv[])
     */
     int sizes[3] = {NZ, NY, NX};
     int subsizes[3] = {nz, ny, nx};
-    int starts[3] = {mz*npz, my*npy, mx*npx};
+    int starts[3] = {mz*nz, my*ny, mx*nx};
     MPI_Datatype subarray_aux, subarray;
     MPI_Type_create_subarray(3, sizes, subsizes, starts, MPI_ORDER_C, MPI_DOUBLE, &subarray_aux);
     MPI_Type_create_resized(subarray_aux, 0, 8, &subarray);
@@ -84,16 +84,25 @@ int main (int argc, char* argv[])
             }
         }
 
+        // for(i=0; i<NZ; i++) {
+        //     for(j=0; j<NY; j++) {
+        //         for (k=1; k<NX-1; k++) {
+        //             i3d = i*(NX*NY) + j*NX + k;
+        //             d_full[i3d] = (3./4)*(f_full[i3d+1] - f_full[i3d-1])/dx;
+        //          }
+        //         i_1 = i*(NX*NY) + j*NX + 0;
+        //         i_N = i*(NX*NY) + j*NX + NX-1;
+        //         d_full[i_1] = (-5*f_full[i_1] + 4*f_full[i_1+1] + f_full[i_1+2])/(2*dx);
+        //         d_full[i_N] = (-5*f_full[i_N] + 4*f_full[i_N-1] + f_full[i_1-2])/(-2*dx);
+        //     }
+        // }
+
         for(i=0; i<NZ; i++) {
             for(j=0; j<NY; j++) {
-                for (k=1; k<NX-1; k++) {
+                for (k=0; k<NX; k++) {
                     i3d = i*(NX*NY) + j*NX + k;
-                    d_full[i3d] = (3./4)*(f_full[i3d+1] - f_full[i3d-1])/dx;
+                    d_full[i3d] = 1.0;
                  }
-                i_1 = i*(NX*NY) + j*NX + 0;
-                i_N = i*(NX*NY) + j*NX + NX-1;
-                d_full[i_1] = (-5*f_full[i_1] + 4*f_full[i_1+1] + f_full[i_1+2])/(2*dx);
-                d_full[i_N] = (-5*f_full[i_N-1] + 4*f_full[i_N-2] + f_full[i_1-3])/(-2*dx);
             }
         }
 
@@ -109,6 +118,20 @@ int main (int argc, char* argv[])
     gamma_global = (double*) malloc(nx*sizeof(double));
     precompute_beta_gam(comm, NX, NY, NZ, beta_global,\
         gamma_global);
+
+    x_global = (double*) malloc(nz*ny*nx*sizeof(double));
+    u_global = (double*) malloc(nz*ny*nx*sizeof(double));
+
+    for(i=0; i<nz; i++) {
+        for(j=0; j<ny; j++) {
+            for (k=0; k<nx; k++) {
+                i3d = i*(nx*ny) + j*nx + k;
+                u_global[i3d] = 0.0;
+                x_global[i3d] = 0.0;
+            }
+        }
+    }
+
     nonperiodic_tridiagonal_solver(comm, NX, NY, NZ, beta_global, gamma_global, d_global, x_global, u_global);
 
     MPI_Type_free(&subarray);

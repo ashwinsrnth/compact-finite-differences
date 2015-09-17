@@ -142,9 +142,9 @@ void line_allgather_faces(MPI_Comm comm, double *x, int *shape, double *x_faces,
     mz = coords[0];
     my = coords[1];
     mx = coords[2];
-    nx = shape[0];
+    nz = shape[0];
     ny = shape[1];
-    nz = shape[2];
+    nx = shape[2];
 
     int line_root;
     int line_processes[npx];
@@ -246,7 +246,148 @@ void line_allgather(MPI_Comm comm, double *x, double *x_line) {
 
 void nonperiodic_tridiagonal_solver(MPI_Comm comm, int NX, int NY, int NZ, double* beta_global, \
     double* gam_global, double* r_global, double* x_global, double* u_global){
-        
+
+    int rank, nprocs;
+    int mz, my, mx;
+    int npz, npy, npx;
+    int nz, ny, nx;
+    int i, j, ii, jj, k, m, n, i3d, i2d;
+    int dims[3], periods[3], coords[3];
+
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &nprocs);
+    MPI_Cart_coords(comm, rank, 3, coords);
+    MPI_Cart_get(comm, 3, dims, periods, coords);
+
+    npz = dims[0];
+    npy = dims[1];
+    npx = dims[2];
+    mz = coords[0];
+    my = coords[1];
+    mx = coords[2];
+    nz = NZ/npz;
+    ny = NY/npy;
+    nx = NX/npx;
+    int shape[3] = {nz, ny, nx};
+
+    int line_root;
+    int line_processes[npx];
+
+    get_line_info(comm, &line_root, line_processes);
+
+    /* LR-sweep */
+    double *phi, *psi;
+    phi = (double*) malloc(nz*ny*nx*sizeof(double));
+    psi = (double*) malloc(nz*ny*nx*sizeof(double));
+
+    for (i=0; i<nz; i++) {
+        for (j=0; j<ny; j++) {
+            for (k=0; k<nx; k++) {
+                i3d = i*(nx*ny) + j*nx + k;
+                phi[i3d] = 0;
+                psi[i3d] = 0;
+            }
+        }
+    }
+
+    for (i=0; i<nz; i++) {
+        for (j=0; j<ny; j++) {
+            i3d = i*(nx*ny) + j*nx + 0;
+            if (mx == 0) {
+                phi[i3d] = 0;
+                psi[i3d] = 1;
+            }
+            else {
+                phi[i3d] = beta_global[0]*r_global[i3d];
+                psi[i3d] = -(1./4)*beta_global[0];
+            }
+
+            for (k=1; k<nx; k++) {
+                i3d = i*(nx*ny) + j*nx + k;
+                phi[i3d] = beta_global[k]*(r_global[i3d] - (1./4)*phi[i3d-1]);
+                psi[i3d] = -(1./4)*beta_global[k]*psi[i3d-1];
+            }
+
+            if (mx == npx-1) {
+                i3d = i*(nx*ny) + j*nx + nx-1;
+                phi[i3d] = beta_global[nx-1]*(r_global[i3d] - 2*phi[i3d-1]);
+                psi[i3d] = -2*beta_global[nx-1]*psi[i3d-1];
+            }
+        }
+    }
+
+    i3d = (nz-1)*(nx*ny) + (ny-1)*nx + (nx-1);
+
+    double *phi_lasts, *psi_lasts;
+    phi_lasts = (double*) malloc(nz*ny*npx*sizeof(double));
+    psi_lasts = (double*) malloc(nz*ny*npx*sizeof(double));
+
+    line_allgather_faces(comm, phi, shape, phi_lasts, 1);
+    line_allgather_faces(comm, psi, shape, psi_lasts, 1);
+
+    double *u_tilda, *u_first;
+    u_tilda = (double*) malloc(nz*ny*sizeof(double));
+    u_first = (double*) malloc(nz*ny*sizeof(double));
+    double product_1, product_2;
+
+    if (mx == 0) {
+        for (i=0; i<nz; i++) {
+            for (j=0; j<ny; j++) {
+                i3d = i*(nx*ny) + j*nx + 0;
+                i2d = i*ny + j;
+                u_global[i3d] = beta_global[0]*r_global[i3d];
+                u_tilda[i2d] = u_global[i3d];
+                u_first[i2d] = u_global[i3d];
+            }
+        }
+    }
+
+    MPI_Barrier(comm);
+    line_bcast(comm, u_first, nz*ny, line_root);
+
+
+    if (rank != line_root) {
+        for (i=0; i<nz; i++) {
+            for (j=0; j<ny; j++) {
+                i2d = i*ny + j;
+                u_tilda[i2d] = 0.0;
+                product_2 = 1.0;
+                for (ii=0; ii<mx; ii++) {
+                    product_1 = 1.0;
+                    for (jj=ii+1; jj<mx; jj++) {
+                        i3d = i*(mx*ny) + j*mx + jj;
+                        product_1 *= psi_lasts[i3d];
+                    }
+                    i3d = i*(npx*ny) + j*npx + ii;
+                    u_tilda[i2d] += phi_lasts[i3d]*product_1;
+                    product_2 *= psi_lasts[i3d];
+                }
+                u_tilda[i2d] += u_first[i2d]*product_2;
+            }
+        }
+    }
+
+    for (i=0; i<nz; i++) {
+        for (j=0; j<ny; j++) {
+            for (k=0; k<nx; k++) {
+                i3d = i*(nx*ny) + j*nx + k;
+                i2d = i*(ny) + j;
+                u_global[i3d] = phi[i3d] + u_tilda[i2d]*psi[i3d];
+            }
+        }
+    }
+
+    i3d = (nz-1)*(ny*nx) + (ny-1)*nx + nx-1;
+    printf("%f\n", u_global[i3d]);
+
+
+    free(phi);
+    free(psi);
+    free(phi_lasts);
+    free(psi_lasts);
+    free(u_tilda);
+    free(u_first);
+
 
     // double *phi_local, *psi_local;
     // double *phi_lasts, *psi_lasts, *gam_firsts, *phi_firsts, *psi_firsts;
@@ -286,7 +427,7 @@ void nonperiodic_tridiagonal_solver(MPI_Comm comm, int NX, int NY, int NZ, doubl
     //
     // if (rank == 0) {
     //     phi_local[0] = 0.0;
-    //     psi_local[0] = 1.0;
+    //     psi_local*,0] = 1.0;
     // }
     //
     // else {
