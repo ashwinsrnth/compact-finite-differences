@@ -5,7 +5,6 @@
 #include <sys/time.h>
 #include <time.h>
 
-
 void get_line_info(MPI_Comm comm, int *line_root, int *line_processes) {
     int rank;
     int mz, my, mx;
@@ -418,51 +417,78 @@ void nonperiodic_tridiagonal_solver(MPI_Comm comm, double* beta_local,
 }
 
 
-void precompute_beta_gam(MPI_Comm comm, size_t system_size, double* beta_local,
-    double* gam_local)
+void precompute_beta_gam(MPI_Comm comm, int NX, int NY, int NZ, double* beta_local,
+    double* gamma_local)
 {
     int rank, nprocs;
-    int local_size;
+    int coords[3], dims[3], periods[3];
+    int i, j, k, i2d, i3d;
+    int nz, ny, nx;
+    int npz, npy, npx, mz, my, mx;
+    int r;
     double last_beta;
-    int i, r;
 
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &nprocs);
-    local_size = system_size/nprocs;
+    MPI_Cart_coords(comm, rank, 3, coords);
+    MPI_Cart_get(comm, 3, dims, periods, coords);
 
-    for (r=0; r<nprocs; r++) {
+    npz = dims[0];
+    npy = dims[1];
+    npx = dims[2];
+    mz = coords[0];
+    my = coords[1];
+    mx = coords[2];
+    nx = NX/npx;
+    ny = NY/npy;
+    nz = NZ/npz;
+
+    int line_root;
+    int line_processes[npx];
+
+    get_line_info(comm, &line_root, line_processes);
+
+    for (i=0; i<nx; i++) {
+        beta_local[i] = 0;
+        gamma_local[i] = 0;
+    }
+
+    last_beta = 0;
+
+    /* Do the serial handoff */
+    for (r=line_root; r<=line_root+npx-1; r++) {
         if (rank == r) {
-            if (rank == 0) {
+            if (rank == line_root) {
                 beta_local[0] = 1.0;
-                gam_local[0] = 0.0;
+                gamma_local[0] = 0.0;
             }
             else {
-                MPI_Recv(&last_beta, 1, MPI_DOUBLE, rank-1, 10, comm, MPI_STATUS_IGNORE);
+                MPI_Recv(&last_beta, 1, MPI_DOUBLE, rank-1, 11, comm, MPI_STATUS_IGNORE);
                 beta_local[0] = 1./(1. - (1./4)*last_beta*(1./4));
-                gam_local[0] = last_beta*(1./4);
+                gamma_local[0] = last_beta*(1./4);
             }
 
-            for (i=1; i<local_size; i++) {
-                if ((rank == 0) && (i == 1)) {
-                    gam_local[i] = beta_local[i-1]*2;
+            for (i=1; i<nx; i++) {
+                if (rank == line_root && i == 1) {
+                    gamma_local[i] = beta_local[i-1]*2;
                 }
                 else {
-                    gam_local[i] = beta_local[i-1]*1./4;
+                    gamma_local[i] = beta_local[i-1]*(1./4);
                 }
-                if ((rank == nprocs-1) && (i == local_size-1)) {
-                    beta_local[i] = 1./(1. - 2.*beta_local[i-1]*(1./4));
+
+                if (rank == line_root+npx-1 && i == nx-1) {
+                    beta_local[i] = 1./(1. - (2.0)*beta_local[i-1]*(1./4));
                 }
-                else if ((rank == 0) && (i == 1)) {
-                    beta_local[i] = 1./(1. - 2.*beta_local[i-1]*(1./4));
+                else if (rank == line_root && i == 1) {
+                    beta_local[i] = 1./(1. - (2.0)*beta_local[i-1]*(1./4));
                 }
                 else {
                     beta_local[i] = 1./(1. - (1./4)*beta_local[i-1]*(1./4));
-
                 }
             }
 
-            if (rank != nprocs-1) {
-                MPI_Send(&beta_local[local_size-1], 1, MPI_DOUBLE, rank+1, 10, comm);
+            if (rank != line_root+npx-1) {
+                MPI_Send(&beta_local[nx-1], 1, MPI_DOUBLE, rank+1, 11, comm);
             }
         }
     }
