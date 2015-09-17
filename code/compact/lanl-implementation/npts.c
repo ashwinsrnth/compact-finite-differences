@@ -343,9 +343,9 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     MPI_Barrier(comm);
     line_bcast(comm, u0, nz*ny, line_root);
 
-    if (rank != line_root) {
-        for (i=0; i<nz; i++) {
-            for (j=0; j<ny; j++) {
+    for (i=0; i<nz; i++) {
+        for (j=0; j<ny; j++) {
+            if (rank != line_root) {
                 i2d = i*ny + j;
                 u_tilda[i2d] = 0.0;
                 product_2 = 1.0;
@@ -361,11 +361,6 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                 }
                 u_tilda[i2d] += u0[i2d]*product_2;
             }
-        }
-    }
-
-    for (i=0; i<nz; i++) {
-        for (j=0; j<ny; j++) {
             for (k=0; k<nx; k++) {
                 i3d = i*(nx*ny) + j*nx + k;
                 i2d = i*ny + j;
@@ -373,6 +368,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
             }
         }
     }
+
 
 
     /* R-L sweep */
@@ -423,9 +419,9 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     MPI_Barrier(comm);
     line_bcast(comm, u0, nz*ny, line_last);
 
-    if (rank != line_last) {
-        for (i=0; i<nz; i++) {
-            for (j=0; j<ny; j++) {
+    for (i=0; i<nz; i++) {
+        for (j=0; j<ny; j++) {
+            if (rank != line_last) {
                 i2d = i*ny + j;
                 u_tilda[i2d] = 0.0;
                 for (ii=mx+2; ii<npx; ii++) {
@@ -445,11 +441,6 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                 i3d = i*(npx*ny) + j*npx + mx+1;
                 u_tilda[i2d] += phi_faces[i3d] + u0[i2d]*product_2;
             }
-        }
-    }
-
-    for (i=0; i<nz; i++) {
-        for (j=0; j<ny; j++) {
             for (k=0; k<nx; k++) {
                 i3d = i*(nx*ny) + j*nx + nx-1;
                 i2d = i*ny + j;
@@ -458,11 +449,12 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
         }
     }
 
+
+    free(phi);
+    free(psi);
     free(gam_firsts);
     free(phi_faces);
     free(psi_faces);
-    free(phi);
-    free(psi);
     free(u_tilda);
     free(u0);
 }
