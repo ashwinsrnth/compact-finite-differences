@@ -286,6 +286,8 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
             }
         }
     }
+    
+    MPI_Barrier(comm);
 
     for (i=0; i<nz; i++) {
         for (j=0; j<ny; j++) {
@@ -313,12 +315,16 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
         }
     }
 
+    MPI_Barrier(comm);
+
     double *phi_faces, *psi_faces;
     phi_faces = (double*) malloc(nz*ny*npx*sizeof(double));
     psi_faces = (double*) malloc(nz*ny*npx*sizeof(double));
 
     line_allgather_faces(comm, phi, shape, phi_faces, 1);
     line_allgather_faces(comm, psi, shape, psi_faces, 1);
+
+    MPI_Barrier(comm);
 
     double *u_tilda, *u0;
     u_tilda = (double*) malloc(nz*ny*sizeof(double));
@@ -339,6 +345,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
 
     MPI_Barrier(comm);
     line_bcast(comm, u0, nz*ny, line_root);
+    MPI_Barrier(comm);
 
     for (i=0; i<nz; i++) {
         for (j=0; j<ny; j++) {
@@ -358,6 +365,11 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                 }
                 u_tilda[i2d] += u0[i2d]*product_2;
             }
+        }
+    }
+    MPI_Barrier(comm);
+    for (i=0; i<nz; i++) {
+        for (j=0; j<ny; j++) {
             for (k=0; k<nx; k++) {
                 i3d = i*(nx*ny) + j*nx + k;
                 i2d = i*ny + j;
@@ -366,15 +378,14 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
         }
     }
 
-
-
+    MPI_Barrier(comm);
     /* R-L sweep */
 
     double *gam_firsts;
     int line_last;
     gam_firsts = (double *) malloc(npx*sizeof(double));
     line_allgather(comm, &gam_global[0], gam_firsts);
-
+    MPI_Barrier(comm);
     line_last = line_root + npx-1;
     for (i=0; i<nz; i++) {
         for (j=0; j<ny; j++) {
@@ -412,11 +423,12 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
         }
     }
 
-    MPI_Barrier(comm);
-    printf("%d\n", rank);
+    MPI_Barrier(comm); 
 
     line_bcast(comm, u0, nz*ny, line_last);
     
+    MPI_Barrier(comm);
+
     for (i=0; i<nz; i++) {
         for (j=0; j<ny; j++) {
             if (rank != line_last) {
@@ -441,6 +453,13 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                 i3d = i*(npx*ny) + j*npx + mx+1;
                 u_tilda[i2d] += phi_faces[i3d] + u0[i2d]*product_2;
             }
+        }
+    }
+    
+    MPI_Barrier(comm);  
+
+    for (i=0; i<nz; i++) {
+        for (j=0; j<ny; j++) {
             for (k=0; k<nx; k++) {
                 i3d = i*(nx*ny) + j*nx + nx-1;
                 i2d = i*ny + j;
@@ -450,7 +469,6 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     }
     
     MPI_Barrier(comm);
-    printf("%d\n", rank);
 
     free(gam_firsts);
     free(phi_faces);
