@@ -131,11 +131,11 @@ int main (int argc, char* argv[])
         }
     }
 
-    nonperiodic_tridiagonal_solver(comm, NX, NY, NZ, beta_global, gamma_global, d_global, x_global, u_global);
+    nonperiodic_tridiagonal_solver(comm, NX, NY, NZ, beta_global, gamma_global, d_global, u_global);
 
     MPI_Barrier(comm);
 
-    MPI_Gatherv(x_global, ny*nx*nz, MPI_DOUBLE, d_full, lengths, displacements, subarray, 0, comm);
+    MPI_Gatherv(u_global, ny*nx*nz, MPI_DOUBLE, d_full, lengths, displacements, subarray, 0, comm);
     MPI_Barrier(comm);
     MPI_Type_free(&subarray);
 
@@ -160,7 +160,6 @@ int main (int argc, char* argv[])
         free(d_full);
     }
 
-    free(x_global);
     free(u_global);
     free(beta_global);
     free(gamma_global);

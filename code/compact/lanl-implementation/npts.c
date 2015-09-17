@@ -245,7 +245,7 @@ void line_allgather(MPI_Comm comm, double *x, double *x_line) {
 }
 
 void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int NY, const int NZ, double* beta_global, \
-    double* gam_global, double* r_global, double* x_global, double* u_global){
+    double* gam_global, double* r_global, double* u_global){
 
     int rank, nprocs;
     int mz, my, mx;
@@ -409,8 +409,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
             for (j=0; j<ny; j++) {
                 i3d = i*(nx*ny) + j*nx + nx-1;
                 i2d = i*ny + j;
-                x_global[i3d] = u_global[i3d];
-                u_tilda[i2d] = x_global[i3d];
+                u_tilda[i2d] = u_global[i3d];
                 u0[i2d] = u_tilda[i2d];
             }
         }
@@ -444,7 +443,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
             for (k=0; k<nx; k++) {
                 i3d = i*(nx*ny) + j*nx + nx-1;
                 i2d = i*ny + j;
-                x_global[i3d-k] = phi[i3d-k] + u_tilda[i2d]*psi[i3d-k];
+                u_global[i3d-k] = phi[i3d-k] + u_tilda[i2d]*psi[i3d-k];
             }
         }
     }
