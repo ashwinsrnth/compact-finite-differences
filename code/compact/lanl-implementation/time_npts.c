@@ -18,7 +18,7 @@ int main (int argc, char* argv[])
     MPI_Comm comm;
     int rank, nprocs;
     double *f_line, *d_line;
-    double *beta_local, *gamma_local, *r_local, *x_local, *f_local, *d_local;
+    double *beta_global, *gamma_global, *r_global, *x_global, *f_global, *d_global, *u_global;
     double t1, t2;
     int nx, ny, nz, NX, NY, NZ;
     int npx, npy, npz, mx, my, mz;
@@ -100,22 +100,16 @@ int main (int argc, char* argv[])
     }
 
     /* Scatter the RHS */
-    double *d_global;
     d_global = (double*) malloc(nz*ny*nx*sizeof(double));
 
     MPI_Scatter(d_full, 1, subarray, d_global, nz*ny*nx, MPI_DOUBLE, 0, comm);
 
     /* Now every process has the RHS, solve the tridiagonal systems: */
-    beta_local =  (double*) malloc(nx*sizeof(double));
-    gamma_local = (double*) malloc(nx*sizeof(double));
-    precompute_beta_gam(comm, NX, NY, NZ, beta_local,\
-        gamma_local);
-
-    if (rank == 3) {
-        for (i=0; i<nx; i++) {
-            printf("%f\n", gamma_local[i]);
-        }
-    }
+    beta_global =  (double*) malloc(nx*sizeof(double));
+    gamma_global = (double*) malloc(nx*sizeof(double));
+    precompute_beta_gam(comm, NX, NY, NZ, beta_global,\
+        gamma_global);
+    nonperiodic_tridiagonal_solver(comm, NX, NY, NZ, beta_global, gamma_global, d_global, x_global, u_global);
 
     MPI_Type_free(&subarray);
 
@@ -124,6 +118,8 @@ int main (int argc, char* argv[])
         free(d_full);
     }
 
+    free(beta_global);
+    free(gamma_global);
     free(d_global);
 
     MPI_Finalize();
