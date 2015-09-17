@@ -378,15 +378,45 @@ void nonperiodic_tridiagonal_solver(MPI_Comm comm, int NX, int NY, int NZ, doubl
     }
 
     i3d = (nz-1)*(ny*nx) + (ny-1)*nx + nx-1;
-    printf("%f\n", u_global[i3d]);
 
+    /* R-L sweep */
 
+    double *gam_firsts;
+    int line_last;
+    gam_firsts = (double *) malloc(npx*sizeof(double));
+    line_allgather(comm, &gam_global[0], gam_firsts);
+
+    line_last = line_root + npx-1;
+    for (i=0; i<nz; i++) {
+        for (j=0; j<ny; j++) {
+            i3d = i*(nx*ny) + j*nx + nx-1;
+            if (rank == line_last) {
+                phi[i3d] = 0.0;
+                psi[i3d] = 1.0;
+            }
+
+            else {
+                phi[i3d] = u_global[i3d];
+                psi[i3d] = -gam_firsts[mx+1];
+            }
+
+            for (k=1; k<nx; k++) {
+                phi[i3d-k] = u_global[i3d-k] - gam_global[nx-1-k+1]*phi[i3d-k+1];
+                psi[i3d-k] = -gam_global[nx-1-k+1]*psi[i3d-k+1];
+            }
+        }
+    }
+
+    printf("%f\n", phi[0]);
+
+    free(gam_firsts);
     free(phi);
     free(psi);
     free(phi_lasts);
     free(psi_lasts);
     free(u_tilda);
     free(u_first);
+
 
 
     // double *phi_local, *psi_local;
