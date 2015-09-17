@@ -139,11 +139,20 @@ int main (int argc, char* argv[])
     MPI_Barrier(comm);
     MPI_Type_free(&subarray);
 
+
     if (rank == 0) {
-        for (k=0; k<NX; k++) {
-            i3d = (0)*(NX*NY) + (0)*(NX) + k;
-            printf("%f\n", d_full[i3d]);
+        double err = 0;
+        double x = 0;
+        for(i=0; i<NZ; i++) {
+            for(j=0; j<NY; j++) {
+                for (k=0; k<NX; k++) {
+                    i3d = i*(NX*NY) + j*NX + k;
+                    x = k*dx;
+                    err += fabs(cos(x) - d_full[i3d]);
+                }
+            }
         }
+        printf("Average absolute error: %0.10f\n", err/(NZ*NX*NY));
     }
 
     if (rank == 0) {

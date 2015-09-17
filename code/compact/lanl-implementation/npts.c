@@ -475,7 +475,8 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     free(psi_lasts);
     free(u_tilda);
     free(u_first);
-
+    free(x_tilda);
+    free(x_last);
 }
 
 
