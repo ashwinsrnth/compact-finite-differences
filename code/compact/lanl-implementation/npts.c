@@ -30,12 +30,8 @@ void get_line_info(MPI_Comm comm, int *line_root, int *line_processes) {
     // get the line processes:
     for (i=0; i<npx; i++) {
         line_processes[i] = *line_root+i;
-        if (rank == 13) {
-            printf("%d\n", line_processes[i]);
-        }
     }
 }
-
 
 void line_subarray(MPI_Comm comm, int *shape, int subarray_length, MPI_Datatype *subarray, int *lengths, int *displacements) {
     int nprocs, rank;
@@ -62,9 +58,14 @@ void line_subarray(MPI_Comm comm, int *shape, int subarray_length, MPI_Datatype 
 
     get_line_info(comm, &line_root, line_processes);
 
+    for (i=0; i<nprocs; i++) {
+        lengths[i] = 0;
+        displacements[i] = 0;
+    }
+
     for (i=0; i<npx; i++) {
         lengths[line_processes[i]] = subarray_length;
-        displacements[line_proceses[i]] = i*subarray_length;
+        displacements[line_processes[i]] = i*subarray_length;
     }
 
     int sizes[3] = {shape[0], shape[1], npx};
@@ -72,8 +73,8 @@ void line_subarray(MPI_Comm comm, int *shape, int subarray_length, MPI_Datatype 
     int starts[3] = {0, 0, displacements[rank]};
 
     MPI_Type_create_subarray(3, sizes, subsizes, starts, MPI_ORDER_C, MPI_DOUBLE, &subarray_aux);
-    MPI_Type_create_resized(subarray_aux, 0, 8, &subarray);
-    MPI_Type_commit(&subarray);
+    MPI_Type_create_resized(subarray_aux, 0, 8, subarray);
+    MPI_Type_commit(subarray);
 }
 
 void line_bcast(MPI_Comm comm, double *buf, int count, int root) {
@@ -195,9 +196,53 @@ void line_allgather_faces(MPI_Comm comm, double *x, int *shape, double *x_faces,
 }
 
 void line_allgather(MPI_Comm comm, double *x, double *x_line) {
+    /*
+    Gather the left or right faces from each
+    process into the line_root and the broadcast it.
 
+    face: 0 - left
+          1 - right
+    */
 
+    int rank, nprocs;
+    int mz, my, mx;
+    int npz, npy, npx;
+    int nz, ny, nx;
+    int i, j, k, i3d, i2d;
+    int dims[3], periods[3], coords[3];
 
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &nprocs);
+    MPI_Cart_coords(comm, rank, 3, coords);
+    MPI_Cart_get(comm, 3, dims, periods, coords);
+
+    npz = dims[0];
+    npy = dims[1];
+    npx = dims[2];
+    mz = coords[0];
+    my = coords[1];
+    mx = coords[2];
+
+    int line_root;
+    int line_processes[npx];
+
+    get_line_info(comm, &line_root, line_processes);
+
+    int lengths[nprocs];
+    int displacements[nprocs];
+
+    for (i=0; i<nprocs; i++) {
+        lengths[i] = 0;
+        displacements[i] = 0;
+    }
+
+    for (i=0; i<npx; i++) {
+        lengths[line_processes[i]] = 1;
+        displacements[line_processes[i]] = i;
+    }
+
+    MPI_Gatherv(x, 1, MPI_DOUBLE, x_line, lengths, displacements, MPI_DOUBLE, line_root, comm);
+    line_bcast(comm, x_line, npx, line_root);
 }
 
 void nonperiodic_tridiagonal_solver(MPI_Comm comm, double* beta_local,
