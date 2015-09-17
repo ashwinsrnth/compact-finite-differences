@@ -413,16 +413,19 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     }
 
     MPI_Barrier(comm);
-    line_bcast(comm, u0, nz*ny, line_last);
+    printf("%d\n", rank);
 
+    line_bcast(comm, u0, nz*ny, line_last);
+    
     for (i=0; i<nz; i++) {
         for (j=0; j<ny; j++) {
             if (rank != line_last) {
                 i2d = i*ny + j;
                 u_tilda[i2d] = 0.0;
+                
                 for (ii=mx+2; ii<npx; ii++) {
                     product_1 = 0.0;
-                    for (jj=mx+1; ii; jj++) {
+                    for (jj=mx+1; jj<ii; jj++) {
                         i3d = i*(npx*ny) + j*npx + jj;
                         product_1 *= psi_faces[i3d];
                     }
@@ -434,6 +437,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                     i3d = i*(npx*ny) + j*npx + ii;
                     product_2 *= psi_faces[i3d];
                 }
+                
                 i3d = i*(npx*ny) + j*npx + mx+1;
                 u_tilda[i2d] += phi_faces[i3d] + u0[i2d]*product_2;
             }
@@ -444,7 +448,9 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
             }
         }
     }
-
+    
+    MPI_Barrier(comm);
+    printf("%d\n", rank);
 
     free(gam_firsts);
     free(phi_faces);
