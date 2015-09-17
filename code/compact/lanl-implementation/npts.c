@@ -323,9 +323,9 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     line_allgather_faces(comm, phi, shape, phi_faces, 1);
     line_allgather_faces(comm, psi, shape, psi_faces, 1);
 
-    double *u_tilda, *u_first;
+    double *u_tilda, *u0;
     u_tilda = (double*) malloc(nz*ny*sizeof(double));
-    u_first = (double*) malloc(nz*ny*sizeof(double));
+    u0 = (double*) malloc(nz*ny*sizeof(double));
     double product_1, product_2;
 
     if (rank == line_root) {
@@ -335,13 +335,13 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                 i2d = i*ny + j;
                 u_global[i3d] = beta_global[0]*r_global[i3d];
                 u_tilda[i2d] = u_global[i3d];
-                u_first[i2d] = u_global[i3d];
+                u0[i2d] = u_global[i3d];
             }
         }
     }
 
     MPI_Barrier(comm);
-    line_bcast(comm, u_first, nz*ny, line_root);
+    line_bcast(comm, u0, nz*ny, line_root);
 
     if (rank != line_root) {
         for (i=0; i<nz; i++) {
@@ -359,7 +359,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                     u_tilda[i2d] += phi_faces[i3d]*product_1;
                     product_2 *= psi_faces[i3d];
                 }
-                u_tilda[i2d] += u_first[i2d]*product_2;
+                u_tilda[i2d] += u0[i2d]*product_2;
             }
         }
     }
@@ -408,30 +408,26 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     line_allgather_faces(comm, phi, shape, phi_faces, 0);
     line_allgather_faces(comm, psi, shape, psi_faces, 0);
 
-    double *x_tilda, *x_last;
-    x_tilda = (double*) malloc(nz*ny*sizeof(double));
-    x_last = (double*) malloc(nz*ny*sizeof(double));
-
     if (rank == line_last) {
         for (i=0; i<nz; i++) {
             for (j=0; j<ny; j++) {
                 i3d = i*(nx*ny) + j*nx + nx-1;
                 i2d = i*ny + j;
                 x_global[i3d] = u_global[i3d];
-                x_tilda[i2d] = x_global[i3d];
-                x_last[i2d] = x_tilda[i2d];
+                u_tilda[i2d] = x_global[i3d];
+                u0[i2d] = u_tilda[i2d];
             }
         }
     }
 
     MPI_Barrier(comm);
-    line_bcast(comm, x_last, nz*ny, line_last);
+    line_bcast(comm, u0, nz*ny, line_last);
 
     if (rank != line_last) {
         for (i=0; i<nz; i++) {
             for (j=0; j<ny; j++) {
                 i2d = i*ny + j;
-                x_tilda[i2d] = 0.0;
+                u_tilda[i2d] = 0.0;
                 for (ii=mx+2; ii<npx; ii++) {
                     product_1 = 0.0;
                     for (jj=mx+1; ii; jj++) {
@@ -439,7 +435,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                         product_1 *= psi_faces[i3d];
                     }
                     i3d = i*(npx*ny) + j*npx + ii;
-                    x_tilda[i2d] += phi_faces[i3d]*product_1;
+                    u_tilda[i2d] += phi_faces[i3d]*product_1;
                 }
                 product_2 = 1.0;
                 for (ii=mx+1; ii<npx; ii++) {
@@ -447,7 +443,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                     product_2 *= psi_faces[i3d];
                 }
                 i3d = i*(npx*ny) + j*npx + mx+1;
-                x_tilda[i2d] += phi_faces[i3d] + x_last[i2d]*product_2;
+                u_tilda[i2d] += phi_faces[i3d] + u0[i2d]*product_2;
             }
         }
     }
@@ -457,7 +453,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
             for (k=0; k<nx; k++) {
                 i3d = i*(nx*ny) + j*nx + nx-1;
                 i2d = i*ny + j;
-                x_global[i3d-k] = phi[i3d-k] + x_tilda[i2d]*psi[i3d-k];
+                x_global[i3d-k] = phi[i3d-k] + u_tilda[i2d]*psi[i3d-k];
             }
         }
     }
@@ -468,9 +464,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     free(phi);
     free(psi);
     free(u_tilda);
-    free(u_first);
-    free(x_tilda);
-    free(x_last);
+    free(u0);
 }
 
 
