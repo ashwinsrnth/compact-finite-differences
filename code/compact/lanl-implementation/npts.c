@@ -316,12 +316,12 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
         }
     }
 
-    double *phi_lasts, *psi_lasts;
-    phi_lasts = (double*) malloc(nz*ny*npx*sizeof(double));
-    psi_lasts = (double*) malloc(nz*ny*npx*sizeof(double));
+    double *phi_faces, *psi_faces;
+    phi_faces = (double*) malloc(nz*ny*npx*sizeof(double));
+    psi_faces = (double*) malloc(nz*ny*npx*sizeof(double));
 
-    line_allgather_faces(comm, phi, shape, phi_lasts, 1);
-    line_allgather_faces(comm, psi, shape, psi_lasts, 1);
+    line_allgather_faces(comm, phi, shape, phi_faces, 1);
+    line_allgather_faces(comm, psi, shape, psi_faces, 1);
 
     double *u_tilda, *u_first;
     u_tilda = (double*) malloc(nz*ny*sizeof(double));
@@ -353,11 +353,11 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                     product_1 = 1.0;
                     for (jj=ii+1; jj<mx; jj++) {
                         i3d = i*(npx*ny) + j*npx + jj;
-                        product_1 *= psi_lasts[i3d];
+                        product_1 *= psi_faces[i3d];
                     }
                     i3d = i*(npx*ny) + j*npx + ii;
-                    u_tilda[i2d] += phi_lasts[i3d]*product_1;
-                    product_2 *= psi_lasts[i3d];
+                    u_tilda[i2d] += phi_faces[i3d]*product_1;
+                    product_2 *= psi_faces[i3d];
                 }
                 u_tilda[i2d] += u_first[i2d]*product_2;
             }
@@ -405,12 +405,8 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
 
     MPI_Barrier(comm);
 
-    double *phi_firsts, *psi_firsts;
-    phi_firsts = (double*) malloc(nz*ny*npx*sizeof(double));
-    psi_firsts = (double*) malloc(nz*ny*npx*sizeof(double));
-
-    line_allgather_faces(comm, phi, shape, phi_firsts, 0);
-    line_allgather_faces(comm, psi, shape, psi_firsts, 0);
+    line_allgather_faces(comm, phi, shape, phi_faces, 0);
+    line_allgather_faces(comm, psi, shape, psi_faces, 0);
 
     double *x_tilda, *x_last;
     x_tilda = (double*) malloc(nz*ny*sizeof(double));
@@ -440,18 +436,18 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
                     product_1 = 0.0;
                     for (jj=mx+1; ii; jj++) {
                         i3d = i*(npx*ny) + j*npx + jj;
-                        product_1 *= psi_firsts[i3d];
+                        product_1 *= psi_faces[i3d];
                     }
                     i3d = i*(npx*ny) + j*npx + ii;
-                    x_tilda[i2d] += phi_firsts[i3d]*product_1;
+                    x_tilda[i2d] += phi_faces[i3d]*product_1;
                 }
                 product_2 = 1.0;
                 for (ii=mx+1; ii<npx; ii++) {
                     i3d = i*(npx*ny) + j*npx + ii;
-                    product_2 *= psi_firsts[i3d];
+                    product_2 *= psi_faces[i3d];
                 }
                 i3d = i*(npx*ny) + j*npx + mx+1;
-                x_tilda[i2d] += phi_firsts[i3d] + x_last[i2d]*product_2;
+                x_tilda[i2d] += phi_faces[i3d] + x_last[i2d]*product_2;
             }
         }
     }
@@ -467,12 +463,10 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     }
 
     free(gam_firsts);
-    free(phi_firsts);
-    free(psi_firsts);
+    free(phi_faces);
+    free(psi_faces);
     free(phi);
     free(psi);
-    free(phi_lasts);
-    free(psi_lasts);
     free(u_tilda);
     free(u_first);
     free(x_tilda);
