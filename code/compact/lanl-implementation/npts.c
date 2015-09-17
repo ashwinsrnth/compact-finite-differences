@@ -245,7 +245,7 @@ void line_allgather(MPI_Comm comm, double *x, double *x_line) {
 }
 
 void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int NY, const int NZ, double* beta_global, \
-    double* gam_global, double* r_global, double* u_global){
+    double* gam_global, double* r_global, double* u_global, double* phi, double* psi){
 
     int rank, nprocs;
     int mz, my, mx;
@@ -276,9 +276,6 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     get_line_info(comm, &line_root, line_processes);
 
     /* LR-sweep */
-    double *phi, *psi;
-    phi = (double*) malloc(nz*ny*nx*sizeof(double));
-    psi = (double*) malloc(nz*ny*nx*sizeof(double));
 
     for (i=0; i<nz; i++) {
         for (j=0; j<ny; j++) {
@@ -449,8 +446,6 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     }
 
 
-    free(phi);
-    free(psi);
     free(gam_firsts);
     free(phi_faces);
     free(psi_faces);

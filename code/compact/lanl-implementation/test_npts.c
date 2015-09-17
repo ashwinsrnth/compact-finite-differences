@@ -18,7 +18,7 @@ int main (int argc, char* argv[])
     MPI_Comm comm;
     int rank, nprocs;
     double *f_line, *d_line;
-    double *beta_global, *gamma_global, *r_global, *x_global, *f_global, *d_global, *u_global;
+    double *beta_global, *gamma_global, *r_global, *x_global, *f_global, *d_global, *u_global, *phi, *psi;
     double t1, t2;
     int nx, ny, nz, NX, NY, NZ;
     int npx, npy, npz, mx, my, mz;
@@ -120,6 +120,8 @@ int main (int argc, char* argv[])
 
     x_global = (double*) malloc(nz*ny*nx*sizeof(double));
     u_global = (double*) malloc(nz*ny*nx*sizeof(double));
+    phi = (double*) malloc(nz*ny*nx*sizeof(double));
+    psi = (double*) malloc(nz*ny*nx*sizeof(double));
 
     for(i=0; i<nz; i++) {
         for(j=0; j<ny; j++) {
@@ -131,7 +133,7 @@ int main (int argc, char* argv[])
         }
     }
 
-    nonperiodic_tridiagonal_solver(comm, NX, NY, NZ, beta_global, gamma_global, d_global, u_global);
+    nonperiodic_tridiagonal_solver(comm, NX, NY, NZ, beta_global, gamma_global, d_global, u_global, phi, psi);
 
     MPI_Barrier(comm);
 
@@ -160,6 +162,8 @@ int main (int argc, char* argv[])
         free(d_full);
     }
 
+    free(phi);
+    free(psi);
     free(u_global);
     free(beta_global);
     free(gamma_global);
