@@ -43,7 +43,7 @@ class CompactFiniteDifferenceSolver:
         self.prg = kernels.get_kernels(self.ctx)
         self.da = mpiDA.DA(self.comm.Clone(), [self.nz, self.ny, self.nx], [self.npz, self.npy, self.npx], 1)
 
-    def dfdx(self, f_global, dx, x_global, f_local, f_g, x_g):
+    def dfdx(self, f_global, dx, x_global, f_local, f_g, x_g, print_timings=False):
         '''
         Get the local x-derivative given
         the local portion of f.
@@ -55,9 +55,13 @@ class CompactFiniteDifferenceSolver:
         f_g: An OpenCL buffer for f_local
         x_g: An OpenCL buffer for x_global
         '''
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
         rank = self.comm.Get_rank()
+
+        if rank == 0 and print_timings:
+            timing = True
+        else:
+            timing = False
+
         size = self.comm.Get_size()
 
         mz, my, mx = self.mz, self.my, self.mx
@@ -72,20 +76,30 @@ class CompactFiniteDifferenceSolver:
         # compute the RHS of the system
         self.comm.Barrier()
         t1 = MPI.Wtime()
+
         self.da.global_to_local(f_global, f_local)
-        nz, ny, nx = f_local[1:-1, 1:-1, 1:-1].shape
+        
+        ta = MPI.Wtime()
+        
         evt = cl.enqueue_copy(self.queue, f_g, f_local)
+        
         evt.wait()
         self.comm.Barrier()
-        ta = MPI.Wtime()
+        tb = MPI.Wtime()
+        
         evt = self.prg.computeRHSdfdx(self.queue, [nx, ny, nz], None,
             f_g, x_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
                 np.int32(mx), np.int32(npx))
         evt.wait()
+        
         self.comm.Barrier()
         t2 = MPI.Wtime()
-        if rank == 0 : print 'Actual kernel: ', t2-ta
-        if rank == 0 : print 'Computing RHS: ', t2-t1
+        
+        if timing:
+            print 'Computing RHS - global to local communication: ', ta-t1
+            print 'Computing RHS - copying to buffer: ', tb-ta
+            print 'Computing RHS - kernel: ', t2-tb
+            print 'Computing RHS - total: ', t2-t1
 
         #---------------------------------------------------------------------------
         # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -125,22 +139,27 @@ class CompactFiniteDifferenceSolver:
         
         self.comm.Barrier()
         ta = MPI.Wtime()
+
         #evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
         #     a_g, b_g, c_g, x_g, c2_g, np.int32(nx))
         evt = self.prg.blockCyclicReduction(self.queue, [nx, nz, ny], [nx, 1, 1],
             a_g, b_g, c_g, x_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx),
                 cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
+        
         evt.wait()
         tb = MPI.Wtime()
+        
         evt = cl.enqueue_copy(self.queue, x_global, x_g)
         evt.wait()
-        tc = MPI.Wtime()
-         
-        self.comm.Barrier()
+        
         t2 = MPI.Wtime()
-        if rank == 0 : print 'Actual kernel: ', tb-ta
-        if rank == 0 : print 'Copying x_R: ', tc-tb
-        if rank == 0 : print 'Solving for x_R: ', t2-t1
+         
+        if timing:
+            print 'Solving for x_R: copying input buffers: ', ta-t1,  
+            print 'Solving for x_R: kernel: ', tb-ta
+            print 'Solving for x_R: copying from solution buffer: ', t2-tb
+            print 'Solving for x_R: total: ', t2-t1
+
         #---------------------------------------------------------------------------
         # the first and last elements in x_LH and x_UH,
         # and also the first and last "faces" in x_R,
@@ -259,6 +278,9 @@ class CompactFiniteDifferenceSolver:
         alpha = params_local[:, :, 0].copy()
         beta = params_local[:, :, 1].copy()
 
+        #------------------------------------------------------------------------------
+        # sum the solutions
+
         self.comm.Barrier()
         t1 = MPI.Wtime()
        
@@ -272,28 +294,34 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, x_UH_line_g, x_UH_line)
         cl.enqueue_copy(self.queue, x_LH_line_g, x_LH_line)
         
+        self.comm.Barrier()
         ta = MPI.Wtime()
+
         evt = self.prg.sumSolutionsdfdx3D(self.queue, [nx, ny, nz], None,
             x_g, x_UH_line_g, x_LH_line_g, alpha_g, beta_g,
                 np.int32(nx), np.int32(ny), np.int32(nz))        
         evt.wait()
-        tb = MPI.Wtime()
 
-        if rank == 0 : print 'Actual kernel: ', tb-ta
+        self.comm.Barrier()
+        tb = MPI.Wtime()
 
         evt = cl.enqueue_copy(self.queue, x_global, x_g)
         evt.wait()
 
         cl.enqueue_barrier(self.queue)
-
         self.comm.Barrier()
         t2 = MPI.Wtime()
+
+        if timing:
+            print 'Summing the solutions - copying input buffers: ', ta-t1
+            print 'Summing the solutions - kernel: ', tb-ta
+            print 'Summing the solutions - copying solution buffer: ', t2-tb
+            print 'Summing the solutions - total: ', t2-t1
+
+        self.comm.Barrier()
         self.comm.Barrier()
         t_end = MPI.Wtime()
 
-        if rank == 0 : print 'Doing the copy: ', t2-tb
-        if rank == 0 : print 'Summing the solutions: ', t2-t1
-        
-        self.comm.Barrier()
-        if rank == 0 : print 'Total time: ', t_end-t_start
+        if timing:
+            print 'Total time: ', t_end-t_start
 
