@@ -69,11 +69,12 @@ class CompactFiniteDifferenceSolver:
         nz, ny, nx = self.nz, self.ny, self.nx
         npz, npy, npx = self.npz, self.npy, self.npx
         assert(f_global.shape == (nz, ny, nx))
+               
+        rhs = self.compute_rhs(f_global, dx, f_local, x_global, f_g, x_g, mx, npx)
+        self.comm.Barrier()
 
         t_start = MPI.Wtime()
-                
-        rhs = self.compute_rhs(f_global, dx, f_local, x_global, f_g, x_g, mx, npx)
-
+ 
         #---------------------------------------------------------------------------
         # create the LHS for the tridiagonal system of the compact difference scheme:
         a_line_local = np.ones(nx, dtype=np.float64)*(1./4)
