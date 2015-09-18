@@ -71,8 +71,8 @@ class CompactFiniteDifferenceSolver:
         assert(f_global.shape == (nz, ny, nx))
 
         t_start = MPI.Wtime()
-
-        rhs = self.compute_rhs(f_global, dx, f_local, x_global, f_g, x_g)
+                
+        rhs = self.compute_rhs(f_global, dx, f_local, x_global, f_g, x_g, mx, npx)
 
         #---------------------------------------------------------------------------
         # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -298,19 +298,14 @@ class CompactFiniteDifferenceSolver:
         if timing:
             print 'Total time: ', t_end-t_start 
     
-    def compute_rhs(self, f_global, dx, f_local, x_global, f_g, x_g):
+    def compute_rhs(self, f_global, dx, f_local, x_global, f_g, x_g, mx, npx):
         '''
         Compute the RHS of the system:
         '''
         #---------------------------------------------------------------------------
         # compute the RHS of the system
-        rank = self.comm.Get_rank()
-        size = self.comm.Get_size()
-        mz, my, mx = self.mz, self.my, self.mx
-        NZ, NY, NX = self.NZ, self.NY, self.NX
-        nz, ny, nx = self.nz, self.ny, self.nx
-        npz, npy, npx = self.npz, self.npy, self.npx
-   
+
+        nz, ny, nx = f_global.shape   
         self.da.global_to_local(f_global, f_local)
         evt = cl.enqueue_copy(self.queue, f_g, f_local)       
         evt = self.prg.computeRHSdfdx(self.queue, [nx, ny, nz], None,
