@@ -121,17 +121,11 @@ class CompactFiniteDifferenceSolver:
                 cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
         
         evt.wait()
-        tb = MPI.Wtime()
-        
-        evt = cl.enqueue_copy(self.queue, x_global, x_g)
-        evt.wait()
-        
         t2 = MPI.Wtime()
-         
+
         if timing:
             print 'Solving for x_R: copying input buffers: ', ta-t1,  
-            print 'Solving for x_R: kernel: ', tb-ta
-            print 'Solving for x_R: copying from solution buffer: ', t2-tb
+            print 'Solving for x_R: kernel: ', t2-ta
             print 'Solving for x_R: total: ', t2-t1
 
         t1 = MPI.Wtime()
