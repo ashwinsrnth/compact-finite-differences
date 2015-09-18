@@ -4,6 +4,7 @@
 #include <mpi.h>
 #include <sys/time.h>
 #include <time.h>
+#include <options.h>
 
 void get_line_info(MPI_Comm comm, int *line_root, int *line_processes) {
     int rank;
@@ -253,6 +254,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     int nz, ny, nx;
     int i, j, ii, jj, k, m, n, i3d, i2d;
     int dims[3], periods[3], coords[3];
+    double t1, t2;
 
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &nprocs);
@@ -277,6 +279,7 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
 
     /* LR-sweep */
 
+    t1 = MPI_Wtime();
     for (i=0; i<nz; i++) {
         for (j=0; j<ny; j++) {
             for (k=0; k<nx; k++) {
@@ -316,6 +319,13 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     }
 
     MPI_Barrier(comm);
+    t2 = MPI_Wtime();
+
+    if (rank == 0 && PRINT_TIMINGS) {
+        printf("LR sweep - computing phi and psi: %0.10f\n", t2-t1);
+    }
+
+    t1 = MPI_Wtime();
 
     double *phi_faces, *psi_faces;
     phi_faces = (double*) malloc(nz*ny*npx*sizeof(double));
@@ -325,6 +335,14 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     line_allgather_faces(comm, psi, shape, psi_faces, 1);
 
     MPI_Barrier(comm);
+    
+    t2 = MPI_Wtime();
+
+    if (rank == 0 && PRINT_TIMINGS) {
+        printf("LR sweep - gathering phi and psi faces: %0.10f\n", t2-t1);
+    }
+
+    t1 = MPI_Wtime();
 
     double *u_tilda, *u0;
     u_tilda = (double*) malloc(nz*ny*sizeof(double));
@@ -368,6 +386,14 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
         }
     }
     MPI_Barrier(comm);
+    t2 = MPI_Wtime();
+
+    if (rank == 0 && PRINT_TIMINGS) {
+        printf("LR sweep - computing u_tilda: %0.10f\n", t2-t1);
+    }
+
+    t1 = MPI_Wtime();
+
     for (i=0; i<nz; i++) {
         for (j=0; j<ny; j++) {
             for (k=0; k<nx; k++) {
@@ -379,10 +405,20 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     }
 
     MPI_Barrier(comm);
+    
+    t2 = MPI_Wtime();
+
+    if (rank == 0 && PRINT_TIMINGS) {
+        printf("LR sweep - computing u_globali: %0.10f\n", t2-t1);
+    }
+
     /* R-L sweep */
 
     double *gam_firsts;
     int line_last;
+
+    t1 = MPI_Wtime();
+
     gam_firsts = (double *) malloc(npx*sizeof(double));
     line_allgather(comm, &gam_global[0], gam_firsts);
     MPI_Barrier(comm);
@@ -408,9 +444,25 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     }
 
     MPI_Barrier(comm);
+    t2 = MPI_Wtime();
+
+    if (rank == 0 && PRINT_TIMINGS) {
+        printf("R-L sweep - computing phi and psi: %0.10f\n", t2-t1);
+    }
+
+    t1 = MPI_Wtime();
 
     line_allgather_faces(comm, phi, shape, phi_faces, 0);
     line_allgather_faces(comm, psi, shape, psi_faces, 0);
+    
+    MPI_Barrier(comm);
+    t2 = MPI_Wtime();
+
+    if (rank == 0 && PRINT_TIMINGS) {
+        printf("R-L sweep - gathering phi and psi faces: %0.10f\n", t2-t1);
+    }
+
+    t1 = MPI_Wtime();
 
     if (rank == line_last) {
         for (i=0; i<nz; i++) {
@@ -457,6 +509,13 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     }
     
     MPI_Barrier(comm);  
+    t2 = MPI_Wtime();
+
+    if (rank == 0 && PRINT_TIMINGS) {
+        printf("R-L sweep - computing x_tilda: %0.10f\n", t2-t1);
+    }
+
+    t1 = MPI_Wtime();
 
     for (i=0; i<nz; i++) {
         for (j=0; j<ny; j++) {
@@ -469,6 +528,11 @@ void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int
     }
     
     MPI_Barrier(comm);
+    t2 = MPI_Wtime();
+
+    if (rank == 0 && PRINT_TIMINGS) {
+        printf("R-L sweep - computing x_global: %0.10f\n", t2-t1);
+    }
 
     free(gam_firsts);
     free(phi_faces);

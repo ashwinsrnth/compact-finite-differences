@@ -1,0 +1,1 @@
+#define PRINT_TIMINGS 0
