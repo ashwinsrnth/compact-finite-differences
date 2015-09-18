@@ -72,34 +72,7 @@ class CompactFiniteDifferenceSolver:
 
         t_start = MPI.Wtime()
 
-        #---------------------------------------------------------------------------
-        # compute the RHS of the system
-        self.comm.Barrier()
-        t1 = MPI.Wtime()
-
-        self.da.global_to_local(f_global, f_local)
-        
-        ta = MPI.Wtime()
-        
-        evt = cl.enqueue_copy(self.queue, f_g, f_local)
-        
-        evt.wait()
-        self.comm.Barrier()
-        tb = MPI.Wtime()
-        
-        evt = self.prg.computeRHSdfdx(self.queue, [nx, ny, nz], None,
-            f_g, x_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
-                np.int32(mx), np.int32(npx))
-        evt.wait()
-        
-        self.comm.Barrier()
-        t2 = MPI.Wtime()
-        
-        if timing:
-            print 'Computing RHS - global to local communication: ', ta-t1
-            print 'Computing RHS - copying to buffer: ', tb-ta
-            print 'Computing RHS - kernel: ', t2-tb
-            print 'Computing RHS - total: ', t2-t1
+        rhs = self.compute_rhs(f_global, dx, f_local, x_global, f_g, x_g)
 
         #---------------------------------------------------------------------------
         # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -323,5 +296,25 @@ class CompactFiniteDifferenceSolver:
         t_end = MPI.Wtime()
 
         if timing:
-            print 'Total time: ', t_end-t_start
+            print 'Total time: ', t_end-t_start 
+    
+    def compute_rhs(self, f_global, dx, f_local, x_global, f_g, x_g):
+        '''
+        Compute the RHS of the system:
+        '''
+        #---------------------------------------------------------------------------
+        # compute the RHS of the system
+        rank = self.comm.Get_rank()
+        size = self.comm.Get_size()
+        mz, my, mx = self.mz, self.my, self.mx
+        NZ, NY, NX = self.NZ, self.NY, self.NX
+        nz, ny, nx = self.nz, self.ny, self.nx
+        npz, npy, npx = self.npz, self.npy, self.npx
+   
+        self.da.global_to_local(f_global, f_local)
+        evt = cl.enqueue_copy(self.queue, f_g, f_local)       
+        evt = self.prg.computeRHSdfdx(self.queue, [nx, ny, nz], None,
+            f_g, x_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
+                np.int32(mx), np.int32(npx))
+        evt.wait()
 
