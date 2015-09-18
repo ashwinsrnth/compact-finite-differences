@@ -182,9 +182,7 @@ class CompactFiniteDifferenceSolver:
         subarray = subarray_aux.Create_resized(0, 8)
         subarray.Commit()
 
-        x_R_faces = np.zeros([nz, ny, 2], dtype=np.float64)
-        x_R_faces[:, :, 0] = x_global[:, :, 0].copy()
-        x_R_faces[:, :, 1] = x_global[:, :, -1].copy()
+        x_R_faces = x_global[:, :, [0, -1]].copy()
 
         cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
