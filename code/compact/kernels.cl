@@ -232,3 +232,33 @@ __kernel void blockCyclicReduction(__global double *a_g,
     d_g[i3d] = d_l[lid];
     barrier(CLK_GLOBAL_MEM_FENCE);
 }
+
+__kernel void copyFaces(__global double* x,
+            __global double* x_faces,
+            int nx,
+            int ny,
+            int nz) {
+    
+    /*
+    Copy the left and right face from the logically [nz, ny, nx] array x
+    to a logically [nz, ny, 2] array x_faces 
+    */
+
+    int iy = get_global_id(1);
+    int iz = get_global_id(2);
+
+    int i_source;
+    int i_dest;
+    
+    i_source = iz*(nx*ny) + iy*nx + 0;
+    i_dest = iz*(2*ny) + iy*2 + 0;
+    
+    x_faces[i_dest] = x[i_source];
+
+    i_source = iz*(nx*ny) + iy*nx + nx-1;
+    i_dest = iz*(2*ny) + iy*2 + 1;
+    
+    x_faces[i_dest] = x[i_source];
+
+}
+            
