@@ -7,6 +7,14 @@
 #include <options.h>
 
 void get_line_info(MPI_Comm comm, int *line_root, int *line_processes) {
+    /* Get the root process for the x-direction
+     * along this line and the ranks of processes in the x-direction.
+     *
+     * comm: An instance of a Cartcomm
+     * line_root: The root process of this line
+     * line_processes: An int array sized "npx" that will contain
+     *                  the ranks of processes along this line
+     */
     int rank;
     int mz, my, mx;
     int npz, npy, npx;
@@ -34,6 +42,14 @@ void get_line_info(MPI_Comm comm, int *line_root, int *line_processes) {
 }
 
 void line_subarray(MPI_Comm comm, int *shape, int subarray_length, MPI_Datatype *subarray, int *lengths, int *displacements) {
+    /*
+     * Create a subarray for orthogonal to this line.
+     * If each block in this line is sized [nz, ny, nx],
+     * then return a subarray sized [nz, ny, subarray_length].
+     * For the case of subarray_length = 1 for instance, this
+     * is useful for getting the left and right "faces" of a
+     * block.
+     */
     int nprocs, rank;
     int mz, my, mx;
     int npz, npy, npx;
@@ -78,6 +94,10 @@ void line_subarray(MPI_Comm comm, int *shape, int subarray_length, MPI_Datatype 
 }
 
 void line_bcast(MPI_Comm comm, double *buf, int count, int root) {
+    /*
+     * Broadcast from the rank "root" to all other
+     * processes in this line.
+     */
     int rank;
     int mz, my, mx;
     int npz, npy, npx;
@@ -118,11 +138,14 @@ void line_bcast(MPI_Comm comm, double *buf, int count, int root) {
 
 void line_allgather_faces(MPI_Comm comm, double *x, int *shape, double *x_faces, int face) {
     /*
-    Gather the left or right faces from each
+    Gather the left or right faces of a block from each
     process into the line_root and the broadcast it.
 
-    face: 0 - left
-          1 - right
+    x: A logically 3-D block shaped [nz, ny, nx]
+    shape: The shape of the block
+
+    face: 0 - left [:, :, 0]
+          1 - right [:, :, -1]
     */
 
     int rank, nprocs;
@@ -197,9 +220,13 @@ void line_allgather_faces(MPI_Comm comm, double *x, int *shape, double *x_faces,
 
 void line_allgather(MPI_Comm comm, double *x, double *x_line) {
     /*
-    Gather the left or right faces from each
+    Gather the left or right faces from the blocks in each process
     process into the line_root and the broadcast it.
 
+    x: A logically 3-D block shaped [nz, ny, nx]
+    x_line: A logically 3-D block shaped [nz, ny, npx]
+            that contains either the left or the right faces
+            from each block "x" in this line.
     face: 0 - left
           1 - right
     */
@@ -247,6 +274,13 @@ void line_allgather(MPI_Comm comm, double *x, double *x_line) {
 
 void nonperiodic_tridiagonal_solver(const MPI_Comm comm, const int NX, const int NY, const int NZ, double* beta_global, \
     double* gam_global, double* r_global, double* u_global, double* phi, double* psi){
+    /* Solve the tridiagonal system in parallel with size [NZ, NY, NX]
+     * Inputs are named by PETSc convention ("global" just refers to arrays without neighbouring process information)
+     * beta, gam: Precomputed coefficents (sized nx)
+     * r: Right hand side (sized nx*ny*nz)
+     * u: Space for solution (sized nx*ny*nx)
+     * phi, psi: Scratch buffers (sized nx*ny*nz)
+     */
 
     int rank, nprocs;
     int mz, my, mx;
