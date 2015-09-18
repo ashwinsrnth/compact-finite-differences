@@ -49,14 +49,6 @@ def run(prob_size):
     dy = 2*np.pi/(NY-1)
     dz = 2*np.pi/(NZ-1)
 
-    comm.Barrier()
-    t2 = MPI.Wtime()
-
-    if rank == 0: print 'Initialization: ', t2-t1
-
-    comm.Barrier()
-    t1 = MPI.Wtime()
-
     x_start, y_start, z_start = mx*nx*dx, my*ny*dy, mz*nz*dz
     z_global, y_global, x_global = np.meshgrid(
         np.linspace(z_start, z_start + (nz-1)*dz, nz),
@@ -67,16 +59,13 @@ def run(prob_size):
     f_global, dfdx_true_global, _, _ = get_3d_function_and_derivs_1(x_global, y_global, z_global)
 
     comm.Barrier()
-    t2 = MPI.Wtime()
-
-    if rank == 0: print 'Computing function and true derivative: ', t2-t1
 
     f_g = cl.Buffer(ctx,
             cl.mem_flags.READ_WRITE | cl.mem_flags.ALLOC_HOST_PTR,
-                (nx+2)*(ny+2)*(nz+2)*8)
+                (nz+2)*(ny+2)*(nx+2)*8)
     x_g = cl.Buffer(ctx,
             cl.mem_flags.READ_WRITE | cl.mem_flags.ALLOC_HOST_PTR,
-                nx*ny*nz*8)
+                nz*ny*nx*8)
 
     (f_local, event) = cl.enqueue_map_buffer(queue, f_g,
         cl.map_flags.WRITE | cl.map_flags.READ, 0,
@@ -85,21 +74,16 @@ def run(prob_size):
             cl.map_flags.WRITE | cl.map_flags.READ, 0,
             (nz, ny, nx), np.float64)
 
-    f_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, (nx+2)*(ny+2)*(nx+2)*8)
-    x_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nx*ny*nx*8)
-    f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
-    dfdx_global = np.zeros([nz, ny, nx], dtype=np.float64)
+    #f_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, (nz+2)*(ny+2)*(nx+2)*8)
+    #x_g = cl.Buffer(ctx, cl.mem_flags.READ_WRITE, nz*ny*nx*8)
+    #f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
+    #dfdx_global = np.zeros([nz, ny, nx], dtype=np.float64)
 
-    comm.Barrier()
-    t1 = MPI.Wtime()
+ 
     cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
-    comm.Barrier()
-    t2 = MPI.Wtime()
-
-    if rank == 0: print 'Instantiating solver: ', t2-t1
 
     for i in range(5):
-        cfd.dfdx(f_global, dx, dfdx_global, f_local, f_g, x_g)
+        cfd.dfdx(f_global, dx, dfdx_global, f_local, f_g, x_g, print_timings=True)
 
     if rank == 0: print np.mean(abs(dfdx_global - dfdx_true_global)/np.mean(abs(dfdx_true_global)))
     comm.Barrier()
@@ -112,15 +96,6 @@ if __name__ == "__main__":
     NY = int(sys.argv[2])
     NX = int(sys.argv[3])
     comm.Barrier()
-    if rank == 0:
-        print 'Rank: ', rank, 'Hostname: ', socket.gethostname()
-        print 'Solving a problem sized (', NZ, NY, NX, ') on ', size, ' processes in a single line.'
-        print 'Corresponds to a total of ', (NX/NZ)*(NX/NY)*size, ' processes.'
-        print 'If GPUs, full simulation requires ', (NX/NZ)*(NX/NY)*size/2, ' nodes. Assuming 2 GPUs/node.'
-        print 'If CPUs,  full simulation requires ', (NX/NZ)*(NX/NY)*size/16, ' nodes. Assuming 16 CPU cores/node.'        
-    comm.Barrier()
     print 'Rank: ', rank, 'Hostname: ', socket.gethostname()
     comm.Barrier()
     run((NZ, NY, NX))
-        
-

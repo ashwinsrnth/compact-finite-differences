@@ -160,6 +160,8 @@ class CompactFiniteDifferenceSolver:
             print 'Solving for x_R: copying from solution buffer: ', t2-tb
             print 'Solving for x_R: total: ', t2-t1
 
+        t1 = MPI.Wtime()
+
         #---------------------------------------------------------------------------
         # the first and last elements in x_LH and x_UH,
         # and also the first and last "faces" in x_R,
@@ -277,6 +279,12 @@ class CompactFiniteDifferenceSolver:
 
         alpha = params_local[:, :, 0].copy()
         beta = params_local[:, :, 1].copy()
+
+        self.comm.Barrier()
+        t2 = MPI.Wtime()
+
+        if timing:
+            print 'Solving the reduced system: ', t2-t1
 
         #------------------------------------------------------------------------------
         # sum the solutions
