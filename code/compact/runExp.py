@@ -82,8 +82,9 @@ def run(prob_size):
  
     cfd = CompactFiniteDifferenceSolver(ctx, queue, comm, (NZ, NY, NX))
 
-    for i in range(5):
+    for i in range(20):
         cfd.dfdx(f_global, dx, dfdx_global, f_local, f_g, x_g, print_timings=True)
+        comm.Barrier()
 
     if rank == 0: print np.mean(abs(dfdx_global - dfdx_true_global)/np.mean(abs(dfdx_true_global)))
     comm.Barrier()
