@@ -281,12 +281,6 @@ class CompactFiniteDifferenceSolver:
                 np.int32(nx), np.int32(ny), np.int32(nz))        
         evt.wait()
 
-        self.comm.Barrier()
-        tb = MPI.Wtime()
-
-        evt = cl.enqueue_copy(self.queue, x_global, x_g)
-        evt.wait()
-
         cl.enqueue_barrier(self.queue)
         self.comm.Barrier()
         t2 = MPI.Wtime()
@@ -298,11 +292,13 @@ class CompactFiniteDifferenceSolver:
             print 'Summing the solutions - total: ', t2-t1
 
         self.comm.Barrier()
-        self.comm.Barrier()
         t_end = MPI.Wtime()
 
         if timing:
             print 'Total time: ', t_end-t_start 
+
+        evt = cl.enqueue_copy(self.queue, x_global, x_g)
+        evt.wait()
     
     def compute_rhs(self, f_global, dx, f_local, x_global, f_g, x_g, mx, npx):
         '''
