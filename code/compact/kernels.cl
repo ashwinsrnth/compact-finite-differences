@@ -14,6 +14,7 @@ __kernel void compactTDMA(__global double *a_d,
 
     int gid = get_global_id(0);
     int block_start = gid*block_size;
+    double bmac;
 
     /* do a serial TDMA on the local system */
 
@@ -22,8 +23,9 @@ __kernel void compactTDMA(__global double *a_d,
 
     for (int i=1; i<block_size; i++)
     {
-        c2_d[i] = c_d[i]/(b_d[i] - a_d[i]*c2_d[i-1]);
-        d_d[block_start+i] = (d_d[block_start+i] - a_d[i]*d_d[block_start+i-1])/(b_d[i] - a_d[i]*c2_d[i-1]);
+        bmac = b_d[i] - a_d[i]*c2_d[i-1];
+        c2_d[i] = c_d[i]/bmac;
+        d_d[block_start+i] = (d_d[block_start+i] - a_d[i]*d_d[block_start+i-1])/bmac;
     }
 
     for (int i=block_size-2; i >= 0; i--)
