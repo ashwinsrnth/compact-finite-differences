@@ -287,16 +287,16 @@ __kernel void MultiNCyclicReduction(__global double *a_g,
         Solve several systems by cyclic reduction,
         each of size block_size.
     */
-    int ix = get_global_id(0);
-    int iy = get_global_id(1);
-    int iz = get_global_id(2);
+    int gix = get_global_id(0);
+    int giy = get_global_id(1);
+    int giz = get_global_id(2);
     int lix = get_local_id(0);
     int liy = get_local_id(1);
     int liz = get_local_id(2);
-    int i, m, n;
+    int i, m, n, ix;
     int stride;
 
-    int i3d = iz*(nx*ny) + iy*nx + ix;
+    int i3d = giz*(nx*ny) + giy*nx + gix;
     int li3d = liz*(bx*by) + liy*bx + lix;
     int lix0 = liz*(bx*by) + liy*bx + 0;
 
@@ -304,9 +304,9 @@ __kernel void MultiNCyclicReduction(__global double *a_g,
     double d_m, d_n;
 
     /* each block reads its portion to shared memory */
-    a_l[li3d] = a_g[ix];
-    b_l[li3d] = b_g[ix];
-    c_l[li3d] = c_g[ix];
+    a_l[li3d] = a_g[gix];
+    b_l[li3d] = b_g[gix];
+    c_l[li3d] = c_g[gix];
     d_l[li3d] = d_g[i3d];
     barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
 
