@@ -107,11 +107,11 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, c_g, c_line_local)
         cl.enqueue_copy(self.queue, c2_g, c_line_local)
         
-        evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
-             a_g, b_g, c_g, x_g, c2_g, np.int32(nx))
-        #evt = self.prg.blockCyclicReduction(self.queue, [nx, nz, ny], [nx, 1, 1],
-        #    a_g, b_g, c_g, x_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx),
-        #        cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
+        #evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
+        #     a_g, b_g, c_g, x_g, c2_g, np.int32(nx))
+        evt = self.prg.MultiNCyclicReduction(self.queue, [nx, ny, nz], [nx, 2, 2],
+            a_g, b_g, c_g, x_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx), np.int32(2),
+                cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8))
      
         evt.wait()
         self.comm.Barrier()
