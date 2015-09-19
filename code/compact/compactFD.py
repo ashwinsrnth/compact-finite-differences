@@ -71,9 +71,8 @@ class CompactFiniteDifferenceSolver:
         assert(f_global.shape == (nz, ny, nx))
                
         rhs = self.compute_rhs(f_global, dx, f_local, x_global, f_g, x_g, mx, npx)
-        self.comm.Barrier()
 
-        t_start = MPI.Wtime()
+        t1 = MPI.Wtime()
  
         #---------------------------------------------------------------------------
         # create the LHS for the tridiagonal system of the compact difference scheme:
@@ -99,9 +98,6 @@ class CompactFiniteDifferenceSolver:
         x_LH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_LH_line)
         x_UH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_UH_line)
 
-        self.comm.Barrier()
-        t1 = MPI.Wtime()
-      
         a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
         b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
         c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
@@ -111,24 +107,18 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, c_g, c_line_local)
         cl.enqueue_copy(self.queue, c2_g, c_line_local)
         
-        self.comm.Barrier()
-        ta = MPI.Wtime()
-
         #evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
         #     a_g, b_g, c_g, x_g, c2_g, np.int32(nx))
         evt = self.prg.blockCyclicReduction(self.queue, [nx, nz, ny], [nx, 1, 1],
             a_g, b_g, c_g, x_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx),
                 cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
-        
+     
         evt.wait()
+        self.comm.Barrier()
         t2 = MPI.Wtime()
 
         if timing:
-            print 'Solving for x_R: copying input buffers: ', ta-t1,  
-            print 'Solving for x_R: kernel: ', t2-ta
             print 'Solving for x_R: total: ', t2-t1
-
-        t1 = MPI.Wtime()
 
         #---------------------------------------------------------------------------
         # the first and last elements in x_LH and x_UH,
@@ -175,7 +165,7 @@ class CompactFiniteDifferenceSolver:
                             [nz, ny, 2], [start_z, start_y, start_x])
         subarray = subarray_aux.Create_resized(0, 8)
         subarray.Commit()
-
+        
         x_R_faces = np.zeros([nz, ny, 2], dtype=np.float64)
         x_R_faces_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, x_R_faces.size*8)
         self.prg.copyFaces(self.queue,
@@ -183,14 +173,12 @@ class CompactFiniteDifferenceSolver:
                     x_g, x_R_faces_g, np.int32(nx), np.int32(ny), np.int32(nz))
         cl.enqueue_copy(self.queue, x_R_faces, x_R_faces_g)
 
-        cl.enqueue_barrier(self.queue)
-        self.comm.Barrier()
-
         # since we're using a subarray, set lengths to 1:
         lengths[line_processes] = 1
 
         self.comm.Gatherv([x_R_faces, MPI.DOUBLE],
             [x_R_global, lengths, displacements, subarray], root=line_root)
+
 
         #---------------------------------------------------------------------------
         # assemble and solve the reduced systems at all ranks mx=0
@@ -242,6 +230,7 @@ class CompactFiniteDifferenceSolver:
 
         #------------------------------------------------------------------------------
         # scatter the parameters back
+        self.comm.Barrier()
 
         params_local = np.zeros([nz, ny, 2], dtype=np.float64)
 
@@ -252,17 +241,14 @@ class CompactFiniteDifferenceSolver:
         beta = params_local[:, :, 1].copy()
 
         self.comm.Barrier()
-        t2 = MPI.Wtime()
+        t3 = MPI.Wtime()
 
         if timing:
-            print 'Solving the reduced system: ', t2-t1
+            print 'Solving the reduced system: ', t3-t2
 
         #------------------------------------------------------------------------------
         # sum the solutions
 
-        self.comm.Barrier()
-        t1 = MPI.Wtime()
-       
         alpha_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*8)
         beta_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*8)
         x_UH_line_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
@@ -273,33 +259,25 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, x_UH_line_g, x_UH_line)
         cl.enqueue_copy(self.queue, x_LH_line_g, x_LH_line)
         
-        self.comm.Barrier()
-        ta = MPI.Wtime()
-
         evt = self.prg.sumSolutionsdfdx3D(self.queue, [nx, ny, nz], None,
             x_g, x_UH_line_g, x_LH_line_g, alpha_g, beta_g,
                 np.int32(nx), np.int32(ny), np.int32(nz))        
         evt.wait()
 
         cl.enqueue_barrier(self.queue)
+        
         self.comm.Barrier()
-        t2 = MPI.Wtime()
+        t4 = MPI.Wtime()
 
         if timing:
-            print 'Summing the solutions - copying input buffers: ', ta-t1
-            print 'Summing the solutions - kernel: ', tb-ta
-            print 'Summing the solutions - copying solution buffer: ', t2-tb
-            print 'Summing the solutions - total: ', t2-t1
-
-        self.comm.Barrier()
-        t_end = MPI.Wtime()
+            print 'Summing the solutions - total: ', t4-t3
 
         if timing:
-            print 'Total time: ', t_end-t_start 
+            print 'Total time: ', t4-t1
 
         evt = cl.enqueue_copy(self.queue, x_global, x_g)
         evt.wait()
-    
+            
     def compute_rhs(self, f_global, dx, f_local, x_global, f_g, x_g, mx, npx):
         '''
         Compute the RHS of the system:
@@ -314,4 +292,4 @@ class CompactFiniteDifferenceSolver:
             f_g, x_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
                 np.int32(mx), np.int32(npx))
         evt.wait()
-
+        self.comm.Barrier()
