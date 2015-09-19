@@ -141,7 +141,7 @@ __kernel void sumSolutionsdfdx2D(__global double* x_R_d,
 }
 
 
-__kernel void blockCyclicReduction(__global double *a_g,
+__kernel void NCyclicReduction(__global double *a_g,
                                __global double *b_g,
                                __global double *c_g,
                                __global double *d_g,
@@ -153,6 +153,11 @@ __kernel void blockCyclicReduction(__global double *a_g,
                                __local double *b_l,
                                __local double *c_l,
                                __local double *d_l) {
+
+    /*
+        Solve several systems by cyclic reduction,
+        each of size block_size.
+    */
     int ix = get_global_id(0);
     int iy = get_global_id(1);
     int iz = get_global_id(2);
@@ -261,4 +266,72 @@ __kernel void copyFaces(__global double* x,
     x_faces[i_dest] = x[i_source];
 
 }
-            
+
+
+__kernel void CRForwardReduction(__global double *a_d,
+                               __global double *b_d,
+                               __global double *c_d,
+                               __global double *d_d,
+                               __global double *x_d,
+                               int system_size,
+                               int stride)
+{
+    int gid = get_global_id(0);
+    int i = (stride-1) + gid*stride;
+    int m, n;
+    double k1, k2;
+
+    // forward reduction
+    if (stride > system_size/2)
+    {
+        // now solve the two-by-two system:
+        stride /= 2;
+        m = stride-1;
+        n = 2*stride-1;
+        x_d[m] = (d_d[m]*b_d[n] - c_d[m]*d_d[n])/ \
+                 (b_d[m]*b_d[n] - c_d[m]*a_d[n]);
+
+        x_d[n] = (b_d[m]*d_d[n] - d_d[m]*a_d[n])/ \
+                 (b_d[m]*b_d[n] - c_d[m]*a_d[n]);
+    }
+    else
+    {
+       if (i == (system_size-1))
+        {
+            k1 = a_d[i]/b_d[i-stride/2];
+            a_d[i] = -a_d[i-stride/2]*k1;
+            b_d[i] = b_d[i] - c_d[i-stride/2]*k1;
+            d_d[i] = d_d[i] - d_d[i-stride/2]*k1;
+        }
+        else
+        {
+            k1 = a_d[i]/b_d[i-stride/2];
+            k2 = c_d[i]/b_d[i+stride/2];
+            a_d[i] = -a_d[i-stride/2]*k1;
+            b_d[i] = b_d[i] - c_d[i-stride/2]*k1 - a_d[i+stride/2]*k2;
+            c_d[i] = -c_d[i+stride/2]*k2;
+            d_d[i] = d_d[i] - d_d[i-stride/2]*k1 - d_d[i+stride/2]*k2;
+        }
+    }
+}
+
+__kernel void CRBackwardSubstitution(__global double *a_d,
+                                   __global double *b_d,
+                                   __global double *c_d,
+                                   __global double *d_d,
+                                   __global double *x_d,
+                                   int system_size,
+                                   int stride)
+{
+    int gid = get_global_id(0);
+    int i = (stride/2-1) + gid*stride;
+    if (i < stride)
+    {
+        x_d[i] = (d_d[i] - c_d[i]*x_d[i+stride/2])/b_d[i];
+    }
+    else
+    {
+        x_d[i] = (d_d[i] - a_d[i]*x_d[i-stride/2] - c_d[i]*x_d[i+stride/2])/b_d[i];
+    }
+
+}

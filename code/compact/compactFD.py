@@ -109,7 +109,7 @@ class CompactFiniteDifferenceSolver:
         
         evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
              a_g, b_g, c_g, x_g, c2_g, np.int32(nx))
-        #evt = self.prg.blockCyclicReduction(self.queue, [nx, nz, ny], [nx, 1, 1],
+        #evt = self.prg.NCyclicReduction(self.queue, [nx, nz, ny], [nx, 1, 1],
         #    a_g, b_g, c_g, x_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx),
         #        cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
      
