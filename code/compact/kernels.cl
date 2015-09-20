@@ -1,3 +1,106 @@
+__kernel void PrecomputedCR(__global double *a_d,
+                           __global double *b_d,
+                           __global double *c_d,
+                           __global double *d_d,
+                           __global double *k1_d,
+                           __global double *k2_d,
+                           __global double *b_first_d,
+                           __global double *k1_first_d,
+                           __global double *k1_last_d, 
+                           int nx,
+                           int ny,
+                           int nz,
+                           int block_size,
+                           __local double *a_l,
+                           __local double *b_l,
+                           __local double *c_l,
+                           __local double *d_l,
+                           __local double *k1_l,
+                           __local double *k2_l,
+                           __local double *b_first_l,
+                           __local double *k1_first_l,
+                           __local double *k1_last_l)
+{
+    int gix = get_global_id(0);
+    int giy = get_global_id(1);
+    int giz = get_global_id(2);
+    int lix = get_local_id(0);
+    int liy = get_local_id(1);
+    int liz = get_local_id(2);
+
+    int i, idx, gi3d, li3d;
+    int m, n;
+    int stride;
+    double d_m, d_n;
+
+    // copy over elements to shared memory
+    gi3d = giz*(nx*ny) + giy*nx + gix;
+    
+    for (idx=0; idx<native_log2((float) nx); idx++) {
+        a_l[idx] = a_d[idx];
+        b_l[idx] = b_d[idx];
+        c_l[idx] = c_d[idx];
+        k1_l[idx] = k1_d[idx];
+        k2_l[idx] = k2_d[idx];
+        b_first_l[idx] = b_first_d[idx];
+        k1_first_l[idx] = k1_first_d[idx];
+        k1_last_l[idx] = k1_last_d[idx];
+    } 
+
+    d_l[lix] = d_d[gi3d];
+    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+    
+    stride = 1;    
+    // forward reduction
+    
+    for (int step=0; step<native_log2((float) nx); step++) {
+
+        stride = stride*2;
+
+        if (lix < nx/stride) {
+            if (stride == nx) {
+                m = native_log2((float)nx/2) - 1;
+                n = native_log2((float)nx/2);
+                d_m = (d_l[nx/2-1]*b_l[n] - c_l[m]*d_l[nx-1])/ \
+                        (b_first_l[m]*b_l[n] - c_l[m]*a_l[n]);
+                d_n =  (b_first_l[m]*d_l[nx-1] - d_l[nx/2-1]*a_l[n])/ \
+                        (b_first_l[m]*b_l[n] - c_l[m]*a_l[n]);
+                d_l[nx/2-1] = d_m;
+                d_l[nx-1] = d_n;
+            }
+             
+            else
+            {    
+                i = (stride-1) + lix*stride;
+                idx = native_log2((float)stride) - 1;
+                
+                if (i == stride-1)
+                {
+                    d_l[i] = d_l[i] - d_l[i-stride/2]*k1_first_l[idx] - d_l[i+stride/2]*k2_l[idx];
+                }
+
+                
+                else if (i == (nx-1))
+                {
+                    d_l[i] = d_l[i] - d_l[i-stride/2]*k1_last_l[idx];
+                }
+
+                
+                else
+                {
+                    d_l[i] = d_l[i] - d_l[i-stride/2]*k1_l[idx] - d_l[i+stride/2]*k2_l[idx];
+                }
+                
+            }
+        }
+
+        barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+    }
+    
+    d_d[gi3d] = d_l[lix];
+    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+    
+}
 
 
 __kernel void compactTDMA(__global double *a_d,
