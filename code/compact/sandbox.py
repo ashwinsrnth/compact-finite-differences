@@ -3,6 +3,7 @@ import kernels
 import numpy as np
 import time
 from scipy.linalg import solve_banded
+from numpy.testing import *
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
@@ -140,17 +141,18 @@ by = 2
 bz = 2
 prg.PrecomputedCR(queue,
         [nx, ny, nz], [bx, by, bz], a_g, b_g, c_g, d_g, k1_g, k2_g,
-            b_first_g, k1_first_g, k1_last_g, np.int32(nx), np.int32(ny),
-                np.int32(nz), np.int32(bx), np.int32(by),
-                    cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(np.log2(nx)*8)),
-                        cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(bz*by*bx*8)),
-                            cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(np.log2(nx)*8)), 
-                                cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(np.log2(nx)*8)),
-                                    cl.LocalMemory(int(np.log2(nx)*8)))
+            b_first_g, k1_first_g, k1_last_g, 
+                np.int32(nx), np.int32(ny),
+                    np.int32(nz), np.int32(bx), np.int32(by),
+                        np.float64(1.0), np.float64(2.0), np.float64(1./4), np.float64(1.0), np.float64(1./4),
+                        cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(np.log2(nx)*8)),
+                            cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(bz*by*bx*8)),
+                                cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(np.log2(nx)*8)), 
+                                    cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(np.log2(nx)*8)),
+                                        cl.LocalMemory(int(np.log2(nx)*8)))
 
 evt = cl.enqueue_copy(queue, d, d_g)
 evt.wait()
-print d[4, 5, :]
 
 a = np.ones(nx)*(1./4)
 b = np.ones(nx)*(1.0)
@@ -158,5 +160,9 @@ c = np.ones(nx)*(1./4)
 a[-1] = 2.0
 c[0] = 2.0
 
-x = scipy_solve_banded(a, b, c, d_copy[4, 5, :])
-print x
+x = np.zeros_like(d, dtype=np.float64)
+for i in range(nz):
+    for j in range(ny):
+        x[i, j, :] = scipy_solve_banded(a, b, c, d_copy[i, j, :])
+
+assert_allclose(x, d)

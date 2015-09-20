@@ -12,6 +12,11 @@ __kernel void PrecomputedCR(__global double *a_d,
                            int nz,
                            int bx,
                            int by,
+                           double b1,
+                           double c1,
+                           double ai,
+                           double bi,
+                           double ci,
                            __local double *a_l,
                            __local double *b_l,
                            __local double *c_l,
@@ -89,43 +94,53 @@ __kernel void PrecomputedCR(__global double *a_d,
                     d_l[i3d] = d_l[i3d] - d_l[i3d-stride/2]*k1_last_l[idx];
                 }
 
-                
                 else
                 {
                     d_l[i3d] = d_l[i3d] - d_l[i3d-stride/2]*k1_l[idx] - d_l[i3d+stride/2]*k2_l[idx];
                 }
-                
             }
+        }
+        barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+    }
+     
+
+    for (int step=0; step<native_log2((float) nx)-1; step++) {
+        stride = stride/2;
+
+        if (lix < nx/stride) {
+            i = (stride/2-1) + lix*stride;
+            i3d = li3d0 + i;
+            
+            if (stride == 2) {
+                if (i == 0) {
+                    d_l[i3d] = (d_l[i3d] - c1*d_l[i3d+1])/b1;
+                }
+
+                else {
+                    d_l[i3d] = (d_l[i3d] - ai*d_l[i3d-1] - ci*d_l[i3d+1])/bi;
+                }
+            }
+
+            else {
+                idx = native_log2((float)stride) - 2;
+                if (lix == 0) {
+                    d_l[i3d] = (d_l[i3d] - c_l[idx]*d_l[i3d+stride/2])/b_first_l[idx];
+                }
+
+                else {
+                    d_l[i3d] = (d_l[i3d] - a_l[idx]*d_l[i3d-stride/2] - c_l[idx]*d_l[i3d+stride/2])/b_l[idx];
+                }
+
+            }
+
         }
 
         barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+
     }
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
     d_d[gi3d] = d_l[li3d];
     barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
-    
-
-    
-
 }
 
 
