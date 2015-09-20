@@ -46,7 +46,7 @@ class PrecomputedCR:
         s1 = int(np.log2(nx)*8)
         s2 = int(bz*by*nx*8)
         
-        self.prg.PrecomputedCR(self.queue,
+        evt = self.prg.PrecomputedCR(self.queue,
                 [nx, ny, nz], [nx, by, bz],
                 self.a_g, self.b_g, self.c_g, x_g,
                 self.k1_g, self.k2_g,
@@ -59,6 +59,7 @@ class PrecomputedCR:
                 cl.LocalMemory(s2),
                 cl.LocalMemory(s1), cl.LocalMemory(s1), cl.LocalMemory(s1),
                 cl.LocalMemory(s1), cl.LocalMemory(s1))
+        evt.wait()
 
 def _precompute_coefficients(nx, coeffs):
     '''

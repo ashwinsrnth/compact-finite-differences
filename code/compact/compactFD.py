@@ -5,6 +5,7 @@ from mpi4py import MPI
 import numpy as np
 from scipy.linalg import solve_banded
 import pyopencl as cl
+import precomputedCR
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
@@ -42,6 +43,15 @@ class CompactFiniteDifferenceSolver:
 
         self.prg = kernels.get_kernels(self.ctx)
         self.da = mpiDA.DA(self.comm.Clone(), [self.nz, self.ny, self.nx], [self.npz, self.npy, self.npx], 1)
+        
+        coeffs = [1., 1./4, 1./4, 1., 1./4, 1./4, 1.]
+        if self.mx == 0:
+            coeffs[1] = 2.
+        if self.mx == self.npx-1:
+            coeffs[-2] = 2.
+
+        self.block_solver = precomputedCR.PrecomputedCR(self.ctx, self.queue, [self.nz, self.ny, self.nx], coeffs)
+
 
     def dfdx(self, f_global, dx, x_global, f_local, f_g, x_g, print_timings=False):
         '''
@@ -98,22 +108,20 @@ class CompactFiniteDifferenceSolver:
         x_LH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_LH_line)
         x_UH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_UH_line)
 
-        a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
-        b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
-        c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
-        c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
-        cl.enqueue_copy(self.queue, a_g, a_line_local)
-        cl.enqueue_copy(self.queue, b_g, b_line_local)
-        cl.enqueue_copy(self.queue, c_g, c_line_local)
-        cl.enqueue_copy(self.queue, c2_g, c_line_local)
-        
+        #a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
+        #b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
+        #c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
+        #c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
+        #cl.enqueue_copy(self.queue, a_g, a_line_local)
+        #cl.enqueue_copy(self.queue, b_g, b_line_local)
+        #cl.enqueue_copy(self.queue, c_g, c_line_local)
+        #cl.enqueue_copy(self.queue, c2_g, c_line_local)
         #evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
         #     a_g, b_g, c_g, x_g, c2_g, np.int32(nx))
-        evt = self.prg.MultiNCyclicReduction(self.queue, [nx, ny, nz], [nx, 2, 2],
-            a_g, b_g, c_g, x_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx), np.int32(2),
-                cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8))
-     
-        evt.wait()
+        #evt = self.prg.MultiNCyclicReduction(self.queue, [nx, ny, nz], [nx, 2, 2],
+        #    a_g, b_g, c_g, x_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx), np.int32(2),
+        #        cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8)) 
+        self.block_solver.solve(x_g, [2, 2])
         self.comm.Barrier()
         t2 = MPI.Wtime()
 
