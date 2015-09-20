@@ -1,147 +1,3 @@
-__kernel void PrecomputedCR(__global double *a_d,
-                           __global double *b_d,
-                           __global double *c_d,
-                           __global double *d_d,
-                           __global double *k1_d,
-                           __global double *k2_d,
-                           __global double *b_first_d,
-                           __global double *k1_first_d,
-                           __global double *k1_last_d, 
-                           int nx,
-                           int ny,
-                           int nz,
-                           int bx,
-                           int by,
-                           double b1,
-                           double c1,
-                           double ai,
-                           double bi,
-                           double ci,
-                           __local double *a_l,
-                           __local double *b_l,
-                           __local double *c_l,
-                           __local double *d_l,
-                           __local double *k1_l,
-                           __local double *k2_l,
-                           __local double *b_first_l,
-                           __local double *k1_first_l,
-                           __local double *k1_last_l)
-{
-    int gix = get_global_id(0);
-    int giy = get_global_id(1);
-    int giz = get_global_id(2);
-    int lix = get_local_id(0);
-    int liy = get_local_id(1);
-    int liz = get_local_id(2);
-
-    int i, idx, gi3d, li3d, i3d, li3d0;
-    int m, n;
-    int stride;
-    double d_m, d_n;
-
-    // copy over elements to shared memory
-    gi3d = giz*(nx*ny) + giy*nx + gix;
-    li3d = liz*(bx*by) + liy*bx + lix;
-    li3d0 = liz*(bx*by) + liy*bx + 0;
-
-    for (idx=0; idx<native_log2((float) nx); idx++) {
-        a_l[idx] = a_d[idx];
-        b_l[idx] = b_d[idx];
-        c_l[idx] = c_d[idx];
-        k1_l[idx] = k1_d[idx];
-        k2_l[idx] = k2_d[idx];
-        b_first_l[idx] = b_first_d[idx];
-        k1_first_l[idx] = k1_first_d[idx];
-        k1_last_l[idx] = k1_last_d[idx];
-    } 
-
-    d_l[li3d] = d_d[gi3d];
-    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
-    
-    stride = 1;    
-    // forward reduction
-    
-    for (int step=0; step<native_log2((float) nx); step++) {
-
-        stride = stride*2;
-
-        if (lix < nx/stride) {
-            if (stride == nx) {
-                m = native_log2((float)nx/2) - 1;
-                n = native_log2((float)nx/2);
-                d_m = (d_l[li3d0 + nx/2-1]*b_l[n] - c_l[m]*d_l[li3d0 + nx-1])/ \
-                        (b_first_l[m]*b_l[n] - c_l[m]*a_l[n]);
-                d_n =  (b_first_l[m]*d_l[li3d0 + nx-1] - d_l[li3d0 + nx/2-1]*a_l[n])/ \
-                        (b_first_l[m]*b_l[n] - c_l[m]*a_l[n]);
-                d_l[li3d0 + nx/2-1] = d_m;
-                d_l[li3d0 + nx-1] = d_n;
-            }
-             
-            else
-            {     
-                idx = native_log2((float)stride) - 1;
-                i = (stride-1) + lix*stride;
-                i3d = li3d0 + i;
-                
-                if (i == stride-1)
-                {
-                    d_l[i3d] = d_l[i3d] - d_l[i3d-stride/2]*k1_first_l[idx] - d_l[i3d+stride/2]*k2_l[idx];
-                }
-
-                
-                else if (i == (nx-1))
-                {
-                    d_l[i3d] = d_l[i3d] - d_l[i3d-stride/2]*k1_last_l[idx];
-                }
-
-                else
-                {
-                    d_l[i3d] = d_l[i3d] - d_l[i3d-stride/2]*k1_l[idx] - d_l[i3d+stride/2]*k2_l[idx];
-                }
-            }
-        }
-        barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
-    }
-     
-
-    for (int step=0; step<native_log2((float) nx)-1; step++) {
-        stride = stride/2;
-
-        if (lix < nx/stride) {
-            i = (stride/2-1) + lix*stride;
-            i3d = li3d0 + i;
-            
-            if (stride == 2) {
-                if (i == 0) {
-                    d_l[i3d] = (d_l[i3d] - c1*d_l[i3d+1])/b1;
-                }
-
-                else {
-                    d_l[i3d] = (d_l[i3d] - ai*d_l[i3d-1] - ci*d_l[i3d+1])/bi;
-                }
-            }
-
-            else {
-                idx = native_log2((float)stride) - 2;
-                if (lix == 0) {
-                    d_l[i3d] = (d_l[i3d] - c_l[idx]*d_l[i3d+stride/2])/b_first_l[idx];
-                }
-
-                else {
-                    d_l[i3d] = (d_l[i3d] - a_l[idx]*d_l[i3d-stride/2] - c_l[idx]*d_l[i3d+stride/2])/b_l[idx];
-                }
-
-            }
-
-        }
-
-        barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
-
-    }
-
-    d_d[gi3d] = d_l[li3d];
-    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
-}
 
 
 __kernel void compactTDMA(__global double *a_d,
@@ -521,3 +377,121 @@ __kernel void MultiNCyclicReduction(__global double *a_g,
 }
 
 
+__kernel void CRForwardReduction(__global double *a_d,
+                               __global double *b_d,
+                               __global double *c_d,
+                               __global double *d_d,
+                               __global double *k1_d,
+                               __global double *k2_d,
+                               __global double *x_d,
+                               __global double *b_first_d,
+                               __global double *k1_first_d,
+                               __global double *k1_last_d,
+                               int nx,
+                               int ny,
+                               int nz,
+                               int stride)
+{
+    int gix = get_global_id(0);
+    int giy = get_global_id(1);
+    int giz = get_global_id(2);
+    int i;
+    int m, n;
+    int idx;
+    int gi3d, gi3d0;
+    double x_m, x_n;
+
+    gi3d = giz*(nx*ny) + giy*nx + gix;
+    gi3d0 = giz*(nx*ny) + giy*nx + 0;
+
+    // forward reduction
+    if (stride == nx)
+    {
+        stride /= 2;
+
+        // note that just log2() fails on GPUs for some reason
+        m = native_log2((float)stride) - 1;
+        n = native_log2((float)stride); // the last element
+
+        x_m = (d_d[gi3d0 + stride-1]*b_d[n] - c_d[m]*d_d[gi3d0 + 2*stride-1])/ \
+                        (b_first_d[m]*b_d[n] - c_d[m]*a_d[n]);
+
+        x_n = (b_first_d[m]*d_d[gi3d0 + 2*stride-1] - d_d[gi3d0 + stride-1]*a_d[n])/ \
+                        (b_first_d[m]*b_d[n] - c_d[m]*a_d[n]);
+    
+        x_d[gi3d0 + stride-1] = x_m;
+        x_d[gi3d0 + 2*stride-1] = x_n;
+    }
+    else
+    {
+        i = (stride-1) + gix*stride;
+        gi3d = gi3d0 + i;
+
+        idx = native_log2((float)stride) - 1;
+        if (gix == 0)
+        {
+            d_d[gi3d] = d_d[gi3d] - d_d[gi3d-stride/2]*k1_first_d[idx] - d_d[gi3d+stride/2]*k2_d[idx];
+        }
+        else if (i == (nx-1))
+        {
+            d_d[gi3d] = d_d[gi3d] - d_d[gi3d-stride/2]*k1_last_d[idx];
+        }
+        else 
+        {
+            d_d[gi3d] = d_d[gi3d] - d_d[gi3d-stride/2]*k1_d[idx] - d_d[gi3d+stride/2]*k2_d[idx];
+        }
+    }
+}
+
+__kernel void CRBackwardSubstitution(__global double *a_d,
+                                   __global double *b_d,
+                                   __global double *c_d,
+                                   __global double *d_d,
+                                   __global double *b_first_d,
+                                   double b1,
+                                   double c1,
+                                   double ai,
+                                   double bi,
+                                   double ci,
+                                   int nx,
+                                   int ny,
+                                   int nz,
+                                   int stride)
+{
+    int gix = get_global_id(0);
+    int giy = get_global_id(1);
+    int giz = get_global_id(2);
+    int i;
+    int idx;
+    int gi3d, gi3d0;
+
+    gi3d0 = giz*(nx*ny) + giy*nx + 0;
+
+    i = (stride/2-1) + gix*stride;
+    gi3d = gi3d0 + i;
+
+    if (stride == 2)
+    {
+        if (i == 0)
+        {
+            d_d[gi3d] = (d_d[gi3d] - c1*d_d[gi3d+1])/b1;
+        }
+        else
+        {
+            d_d[gi3d] = (d_d[gi3d] - (ai)*d_d[gi3d-1] - (ci)*d_d[gi3d+1])/bi;
+        }
+    }
+    else
+    {
+        // note that just log2() fails on GPUs for some reason
+        idx = native_log2((float)stride) - 2;
+        if (gix == 0)
+        {
+            d_d[gi3d] = (d_d[gi3d] - c_d[idx]*d_d[gi3d+stride/2])/b_first_d[idx];
+        }
+        else
+        {
+            d_d[gi3d] = (d_d[gi3d] - a_d[idx]*d_d[gi3d-stride/2] - c_d[idx]*d_d[gi3d+stride/2])/b_d[idx];
+        }
+    }
+}

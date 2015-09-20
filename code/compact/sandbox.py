@@ -54,8 +54,8 @@ a[-1] = 2.0
 c[0] = 2.0
 
 x = np.zeros_like(d, dtype=np.float64)
+
 for i in range(nz):
     for j in range(ny):
         x[i, j, :] = scipy_solve_banded(a, b, c, d_copy[i, j, :])
-
 assert_allclose(x, d)
