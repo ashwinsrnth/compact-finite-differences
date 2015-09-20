@@ -106,9 +106,9 @@ ctx = cl.Context([device])
 queue = cl.CommandQueue(ctx)
 prg = kernels.get_kernels(ctx)
 
-nx = 32
-ny = 1
-nz = 1
+nx = 16
+ny = 16
+nz = 16
 
 a, b, c, k1, k2, b_first, k1_first, k1_last = \
         _precompute_coefficients(nx, [1, 2, 1./4, 1, 1./4, 2, 1])
@@ -135,21 +135,22 @@ cl.enqueue_copy(queue, k1_first_g, k1_first)
 cl.enqueue_copy(queue, k1_last_g, k1_last)
 cl.enqueue_copy(queue, d_g, d)
 
-
-block_size = nx
+bx = nx
+by = 2
+bz = 2
 prg.PrecomputedCR(queue,
-        [nx, 1, 1], [nx, 1, 1], a_g, b_g, c_g, d_g, k1_g, k2_g,
+        [nx, ny, nz], [bx, by, bz], a_g, b_g, c_g, d_g, k1_g, k2_g,
             b_first_g, k1_first_g, k1_last_g, np.int32(nx), np.int32(ny),
-                np.int32(nz), np.int32(block_size),
-                    cl.LocalMemory(int(np.log2(block_size)*8)), cl.LocalMemory(int(np.log2(block_size)*8)),
-                        cl.LocalMemory(int(np.log2(block_size)*8)), cl.LocalMemory(int(block_size*8)),
-                            cl.LocalMemory(int(np.log2(block_size)*8)), cl.LocalMemory(int(np.log2(block_size)*8)), 
-                                cl.LocalMemory(int(np.log2(block_size)*8)), cl.LocalMemory(int(np.log2(block_size)*8)),
-                                    cl.LocalMemory(int(np.log2(block_size)*8)))
+                np.int32(nz), np.int32(bx), np.int32(by),
+                    cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(np.log2(nx)*8)),
+                        cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(bz*by*bx*8)),
+                            cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(np.log2(nx)*8)), 
+                                cl.LocalMemory(int(np.log2(nx)*8)), cl.LocalMemory(int(np.log2(nx)*8)),
+                                    cl.LocalMemory(int(np.log2(nx)*8)))
 
 evt = cl.enqueue_copy(queue, d, d_g)
 evt.wait()
-print d[0, 0, :]
+print d[4, 5, :]
 
 a = np.ones(nx)*(1./4)
 b = np.ones(nx)*(1.0)
@@ -157,5 +158,5 @@ c = np.ones(nx)*(1./4)
 a[-1] = 2.0
 c[0] = 2.0
 
-x = scipy_solve_banded(a, b, c, d_copy[0, 0, :])
+x = scipy_solve_banded(a, b, c, d_copy[4, 5, :])
 print x

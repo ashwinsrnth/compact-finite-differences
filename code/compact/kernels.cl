@@ -10,7 +10,8 @@ __kernel void PrecomputedCR(__global double *a_d,
                            int nx,
                            int ny,
                            int nz,
-                           int block_size,
+                           int bx,
+                           int by,
                            __local double *a_l,
                            __local double *b_l,
                            __local double *c_l,
@@ -28,14 +29,16 @@ __kernel void PrecomputedCR(__global double *a_d,
     int liy = get_local_id(1);
     int liz = get_local_id(2);
 
-    int i, idx, gi3d, li3d;
+    int i, idx, gi3d, li3d, i3d, li3d0;
     int m, n;
     int stride;
     double d_m, d_n;
 
     // copy over elements to shared memory
     gi3d = giz*(nx*ny) + giy*nx + gix;
-    
+    li3d = liz*(bx*by) + liy*bx + lix;
+    li3d0 = liz*(bx*by) + liy*bx + 0;
+
     for (idx=0; idx<native_log2((float) nx); idx++) {
         a_l[idx] = a_d[idx];
         b_l[idx] = b_d[idx];
@@ -47,7 +50,7 @@ __kernel void PrecomputedCR(__global double *a_d,
         k1_last_l[idx] = k1_last_d[idx];
     } 
 
-    d_l[lix] = d_d[gi3d];
+    d_l[li3d] = d_d[gi3d];
     barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
     
     stride = 1;    
@@ -61,34 +64,35 @@ __kernel void PrecomputedCR(__global double *a_d,
             if (stride == nx) {
                 m = native_log2((float)nx/2) - 1;
                 n = native_log2((float)nx/2);
-                d_m = (d_l[nx/2-1]*b_l[n] - c_l[m]*d_l[nx-1])/ \
+                d_m = (d_l[li3d0 + nx/2-1]*b_l[n] - c_l[m]*d_l[li3d0 + nx-1])/ \
                         (b_first_l[m]*b_l[n] - c_l[m]*a_l[n]);
-                d_n =  (b_first_l[m]*d_l[nx-1] - d_l[nx/2-1]*a_l[n])/ \
+                d_n =  (b_first_l[m]*d_l[li3d0 + nx-1] - d_l[li3d0 + nx/2-1]*a_l[n])/ \
                         (b_first_l[m]*b_l[n] - c_l[m]*a_l[n]);
-                d_l[nx/2-1] = d_m;
-                d_l[nx-1] = d_n;
+                d_l[li3d0 + nx/2-1] = d_m;
+                d_l[li3d0 + nx-1] = d_n;
             }
              
             else
-            {    
-                i = (stride-1) + lix*stride;
+            {     
                 idx = native_log2((float)stride) - 1;
+                i = (stride-1) + lix*stride;
+                i3d = li3d0 + i;
                 
                 if (i == stride-1)
                 {
-                    d_l[i] = d_l[i] - d_l[i-stride/2]*k1_first_l[idx] - d_l[i+stride/2]*k2_l[idx];
+                    d_l[i3d] = d_l[i3d] - d_l[i3d-stride/2]*k1_first_l[idx] - d_l[i3d+stride/2]*k2_l[idx];
                 }
 
                 
                 else if (i == (nx-1))
                 {
-                    d_l[i] = d_l[i] - d_l[i-stride/2]*k1_last_l[idx];
+                    d_l[i3d] = d_l[i3d] - d_l[i3d-stride/2]*k1_last_l[idx];
                 }
 
                 
                 else
                 {
-                    d_l[i] = d_l[i] - d_l[i-stride/2]*k1_l[idx] - d_l[i+stride/2]*k2_l[idx];
+                    d_l[i3d] = d_l[i3d] - d_l[i3d-stride/2]*k1_l[idx] - d_l[i3d+stride/2]*k2_l[idx];
                 }
                 
             }
@@ -97,9 +101,31 @@ __kernel void PrecomputedCR(__global double *a_d,
         barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
     }
     
-    d_d[gi3d] = d_l[lix];
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    d_d[gi3d] = d_l[li3d];
     barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
     
+
+    
+
 }
 
 
