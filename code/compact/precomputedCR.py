@@ -116,7 +116,7 @@ class PrecomputedCR:
         for i in np.arange(int(np.log2(self.nx))):
             stride *= 2
             evt = self.prg.CRForwardReduction(self.queue, [self.nx/stride, self.ny, self.nz], [self.nx/stride, by, bz],
-                self.a_g, self.b_g, self.c_g, x_g, self.k1_g, self.k2_g, x_g,
+                self.a_g, self.b_g, self.c_g, x_g, self.k1_g, self.k2_g,
                     self.b_first_g, self.k1_first_g, self.k1_last_g,
                         np.int32(self.nx), np.int32(self.ny), np.int32(self.nz),
                             np.int32(stride))

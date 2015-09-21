@@ -383,7 +383,6 @@ __kernel void CRForwardReduction(__global double *a_d,
                                __global double *d_d,
                                __global double *k1_d,
                                __global double *k2_d,
-                               __global double *x_d,
                                __global double *b_first_d,
                                __global double *k1_first_d,
                                __global double *k1_last_d,
@@ -419,8 +418,8 @@ __kernel void CRForwardReduction(__global double *a_d,
         x_n = (b_first_d[m]*d_d[gi3d0 + 2*stride-1] - d_d[gi3d0 + stride-1]*a_d[n])/ \
                         (b_first_d[m]*b_d[n] - c_d[m]*a_d[n]);
     
-        x_d[gi3d0 + stride-1] = x_m;
-        x_d[gi3d0 + 2*stride-1] = x_n;
+        d_d[gi3d0 + stride-1] = x_m;
+        d_d[gi3d0 + 2*stride-1] = x_n;
     }
     else
     {
