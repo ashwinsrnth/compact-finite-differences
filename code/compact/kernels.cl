@@ -1,6 +1,6 @@
 
 
-__kernel void compactTDMA(__global double *a_d,
+__kernel void pThomasKernel(__global double *a_d,
                                 __global double *b_d,
                                 __global double *c_d,
                                 __global double *d_d,
@@ -8,8 +8,8 @@ __kernel void compactTDMA(__global double *a_d,
                                 int block_size)
 {
     /*
-    Solves many small systems arising from
-    compact finite difference formulation.
+    Solves many small tridiagonal systems
+    using a pThomas (thread-parallel Thomas algorithm)
     */
 
     int gid = get_global_id(0);
@@ -143,7 +143,7 @@ __kernel void sumSolutionsdfdx2D(__global double* x_R_d,
 }
 
 
-__kernel void NCyclicReduction(__global double *a_g,
+__kernel void singleLineCyclicReduction(__global double *a_g,
                                __global double *b_g,
                                __global double *c_g,
                                __global double *d_g,
@@ -269,7 +269,7 @@ __kernel void copyFaces(__global double* x,
 
 }
 
-__kernel void MultiNCyclicReduction(__global double *a_g,
+__kernel void multiLineCyclicReduction(__global double *a_g,
                                __global double *b_g,
                                __global double *c_g,
                                __global double *d_g,
@@ -377,7 +377,7 @@ __kernel void MultiNCyclicReduction(__global double *a_g,
 }
 
 
-__kernel void CRForwardReduction(__global double *a_d,
+__kernel void globalForwardReduction(__global double *a_d,
                                __global double *b_d,
                                __global double *c_d,
                                __global double *d_d,
@@ -442,7 +442,7 @@ __kernel void CRForwardReduction(__global double *a_d,
     }
 }
 
-__kernel void CRBackwardSubstitution(__global double *a_d,
+__kernel void globalBackSubstitution(__global double *a_d,
                                    __global double *b_d,
                                    __global double *c_d,
                                    __global double *d_d,

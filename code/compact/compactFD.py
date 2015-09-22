@@ -116,9 +116,9 @@ class CompactFiniteDifferenceSolver:
         #cl.enqueue_copy(self.queue, b_g, b_line_local)
         #cl.enqueue_copy(self.queue, c_g, c_line_local)
         #cl.enqueue_copy(self.queue, c2_g, c_line_local)
-        #evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
+        #evt = self.prg.pThomasKernel(self.queue, [nz*ny], None,
         #     a_g, b_g, c_g, x_g, c2_g, np.int32(nx))
-        #evt = self.prg.MultiNCyclicReduction(self.queue, [nx, ny, nz], [nx, 2, 2],
+        #evt = self.prg.multiLineCyclicReduction(self.queue, [nx, ny, nz], [nx, 2, 2],
         #    a_g, b_g, c_g, x_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx), np.int32(2),
         #        cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8)) 
         self.block_solver.solve(x_g, [2, 2])
@@ -226,7 +226,7 @@ class CompactFiniteDifferenceSolver:
             cl.enqueue_copy(self.queue, b_g, b_reduced)
             cl.enqueue_copy(self.queue, c_g, c_reduced)
             cl.enqueue_copy(self.queue, c2_g, c_reduced)
-            evt = self.prg.compactTDMA(self.queue, [nz*ny], None,
+            evt = self.prg.pThomasKernel(self.queue, [nz*ny], None,
                 a_g, b_g, c_g, d_reduced_g, c2_g,
                     np.int32(2*npx))
             evt = cl.enqueue_copy(self.queue, params, d_reduced_g)
