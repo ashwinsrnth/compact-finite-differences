@@ -23,6 +23,36 @@ def scipy_solve_banded(a, b, c, rhs):
     x = solve_banded(l_and_u, ab, rhs)
     return x
 
+def MPI_get_line(comm, direction):
+    '''
+    '''
+    npz, npy, npx = comm.Get_topo()[0]
+    mz, my, mx = comm.Get_topo()[2]
+    ranks_matrix = np.arange(npz*npy*npx).reshape([npz, npy, npx])
+    global_group = comm.Get_group()
+    if direction == 0:
+        line_group = global_group.Incl(ranks_matrix[mz, my, :])
+    elif direction == 1:
+        line_group = global_group.Incl(ranks_matrix[mz, :, mx])
+    else:
+        line_group = global_group.Incl(ranks_matrix[:, my, mx])
+    line_comm = comm.Create(line_group)
+    return line_comm
+
+def face_type(line_comm, shape):
+    '''
+    
+    '''
+    nz, ny, nx = shape
+    npx = line_comm.Get_size()
+    displacements = np.arange(0, 2*npx, 2)
+    line_rank = line_comm.Get_rank()
+    start_z, start_y, start_x = 0, 0, displacements[line_rank]
+    subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, 2*npx],
+                        [nz, ny, 2], [start_z, start_y, start_x])
+    subarray = subarray_aux.Create_resized(0, 8)
+    subarray.Commit()
+    return subarray
 
 class CompactFiniteDifferenceSolver:
 
@@ -145,35 +175,24 @@ class CompactFiniteDifferenceSolver:
             x_LH_global = None
             x_UH_global = None
 
-        procs_matrix = np.arange(size, dtype=int).reshape([npz, npy, npx])
-        line_root = procs_matrix[mz, my, 0]         # the root procs of this line
-        line_processes = procs_matrix[mz, my, :]    # all procs in this line
+        line_comm = MPI_get_line(self.comm, 0)
+        line_rank = line_comm.Get_rank()
 
-        # initialize lengths and displacements to 0
-        lengths = np.zeros(size)
-        displacements = np.zeros(size)
+        lengths = np.ones(npx)*2
+        displacements = np.arange(0, 2*npx, 2)
 
-        # only the processes in the line get lengths and displacements
-        lengths[line_processes] = 2
-        displacements[line_processes] = range(0, 2*npx, 2)
+        line_comm.Gatherv([np.array([x_LH_line[0], x_LH_line[-1]]), MPI.DOUBLE],
+           [x_LH_global, lengths, displacements, MPI.DOUBLE])
 
-        self.comm.Gatherv([np.array([x_LH_line[0], x_LH_line[-1]]), MPI.DOUBLE],
-            [x_LH_global, lengths, displacements, MPI.DOUBLE], root=line_root)
-
-        self.comm.Gatherv([np.array([x_UH_line[0], x_UH_line[-1]]), MPI.DOUBLE],
-            [x_UH_global, lengths, displacements, MPI.DOUBLE], root=line_root)
+        line_comm.Gatherv([np.array([x_UH_line[0], x_UH_line[-1]]), MPI.DOUBLE],
+           [x_UH_global, lengths, displacements, MPI.DOUBLE])
 
         if mx == 0:
             x_R_global = np.zeros([nz, ny, 2*npx], dtype=np.float64)
         else:
             x_R_global = None
 
-        start_z, start_y, start_x = 0, 0, displacements[rank]
-        subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, 2*npx],
-                            [nz, ny, 2], [start_z, start_y, start_x])
-        subarray = subarray_aux.Create_resized(0, 8)
-        subarray.Commit()
-        
+        subarray = face_type(line_comm, [nz, ny, nx])
         x_R_faces = np.zeros([nz, ny, 2], dtype=np.float64)
         x_R_faces_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, x_R_faces.size*8)
         self.prg.copyFaces(self.queue,
@@ -182,17 +201,16 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, x_R_faces, x_R_faces_g)
 
         # since we're using a subarray, set lengths to 1:
-        lengths[line_processes] = 1
+        lengths = np.ones(npx)*1
+        displacements = np.arange(0, 2*npx, 2)
 
-        self.comm.Gatherv([x_R_faces, MPI.DOUBLE],
-            [x_R_global, lengths, displacements, subarray], root=line_root)
+        line_comm.Gatherv([x_R_faces, MPI.DOUBLE],
+            [x_R_global, lengths, displacements, subarray])
 
-
-        #---------------------------------------------------------------------------
         # assemble and solve the reduced systems at all ranks mx=0
         # to compute the transfer parameters
 
-        if mx == 0:
+        if line_rank == 0:
             a_reduced = np.zeros([2*npx], dtype=np.float64)
             b_reduced = np.zeros([2*npx], dtype=np.float64)
             c_reduced = np.zeros([2*npx], dtype=np.float64)
@@ -203,6 +221,7 @@ class CompactFiniteDifferenceSolver:
             a_reduced[1::2] = x_UH_global[1::2]
             b_reduced[0::2] = x_UH_global[0::2]
             b_reduced[1::2] = x_LH_global[1::2]
+
             c_reduced[0::2] = x_LH_global[0::2]
             c_reduced[1::2] = -1.
 
@@ -242,8 +261,8 @@ class CompactFiniteDifferenceSolver:
 
         params_local = np.zeros([nz, ny, 2], dtype=np.float64)
 
-        self.comm.Scatterv([params, lengths, displacements, subarray],
-            [params_local, MPI.DOUBLE], root=line_root)
+        line_comm.Scatterv([params, lengths, displacements, subarray],
+            [params_local, MPI.DOUBLE])
 
         alpha = params_local[:, :, 0].copy()
         beta = params_local[:, :, 1].copy()
