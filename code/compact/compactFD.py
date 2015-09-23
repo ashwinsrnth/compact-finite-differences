@@ -122,7 +122,7 @@ class CompactFiniteDifferenceSolver:
         #    a_g, b_g, c_g, x_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx), np.int32(2),
         #        cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8)) 
         self.block_solver.solve(x_g, [2, 2])
-        self.comm.Barrier()
+        
         t2 = MPI.Wtime()
 
         if timing:

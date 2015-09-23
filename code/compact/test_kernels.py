@@ -163,3 +163,6 @@ def test_multi_line_cyclic_reduction():
         for j in range(ny):
             x_true = scipy_solve_banded(a, b, c, d_copy[i,j,:])
             assert_allclose(x_true, d[i,j,:])
+
+def test_precomputed_cyclic_reduction():
+    pass
