@@ -109,40 +109,7 @@ __kernel void sumSolutionsdfdx3D(__global double* x_R_d,
 
     x_R_d[i3d] = x_R_d[i3d] + alpha[i2d]*x_UH_d[ix] + beta[i2d]*x_LH_d[ix];
 }
-
-__kernel void sumSolutionsdfdx2D(__global double* x_R_d,
-                            __global double* x_UH_d,
-                            __global double* x_LH_d,
-                            __global double* alpha,
-                            __global double* beta,
-                            int nx,
-                            int ny,
-                            int nz)
-{
-    /*
-    Computes the sum of the solution x_R, x_UH and x_LH,
-    where x_R is [nz, ny, nx] and x_LH & x_UH are [nx] sized.
-    Performs the following:
-
-    np.einsum('ij,k->ijk', alpha, x_UH_line) + np.einsum('ij,k->ijk', beta, x_LH_line)
-    */
-
-    int iy = get_global_id(0);
-    int iz = get_global_id(1);
-    int i3d, i2d;
-    double a, b;
-
-    i2d = iz*ny + iy;
-    a = alpha[i2d];
-    b = beta[i2d];
-
-    for (int ix=0; ix<nx; ix++) {
-        i3d = iz*(nx*ny) + iy*nx + ix;
-        x_R_d[i3d] = x_R_d[i3d] + a*x_UH_d[ix] + b*x_LH_d[ix];
-    }
-}
-
-
+    
 __kernel void singleLineCyclicReduction(__global double *a_g,
                                __global double *b_g,
                                __global double *c_g,
@@ -304,9 +271,9 @@ __kernel void multiLineCyclicReduction(__global double *a_g,
     double d_m, d_n;
 
     /* each block reads its portion to shared memory */
-    a_l[li3d] = a_g[gix];
-    b_l[li3d] = b_g[gix];
-    c_l[li3d] = c_g[gix];
+    a_l[lix] = a_g[gix];
+    b_l[lix] = b_g[gix];
+    c_l[lix] = c_g[gix];
     d_l[li3d] = d_g[i3d];
     barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
 
@@ -321,29 +288,28 @@ __kernel void multiLineCyclicReduction(__global double *a_g,
             ix = lix0 + i;
 
             if (stride == nx) {
-                m = lix0 + nx/2 - 1;
-                n = lix0 + nx - 1;
+                m = nx/2 - 1;
+                n = nx - 1;
 
-                d_m = (d_l[m]*b_l[n] - c_l[m]*d_l[n])/(b_l[m]*b_l[n] - c_l[m]*a_l[n]);
-                d_n = (b_l[m]*d_l[n] - d_l[m]*a_l[n])/(b_l[m]*b_l[n] - c_l[m]*a_l[n]);
-                d_l[m] = d_m;
-                d_l[n] = d_n;
+                d_m = (d_l[lix0+m]*b_l[n] - c_l[m]*d_l[lix0+n])/(b_l[m]*b_l[n] - c_l[m]*a_l[n]);
+                d_n = (b_l[m]*d_l[lix0+n] - d_l[lix0+m]*a_l[n])/(b_l[m]*b_l[n] - c_l[m]*a_l[n]);
+                d_l[lix0+m] = d_m;
+                d_l[lix0+n] = d_n;
             }
 
             else {
                 if (i == (nx-1)) {
-                    ix = lix0 + i;
-                    k1 = a_l[ix]/b_l[ix-stride/2];
-                    a_l[ix] = -a_l[ix-stride/2]*k1;
-                    b_l[ix] = b_l[ix] - c_l[ix-stride/2]*k1;
+                    k1 = a_l[i]/b_l[i-stride/2];
+                    a_l[i] = -a_l[i-stride/2]*k1;
+                    b_l[i] = b_l[i] - c_l[i-stride/2]*k1;
                     d_l[ix] = d_l[ix] - d_l[ix-stride/2]*k1;
                 }
                 else {
-                    k1 = a_l[ix]/b_l[ix-stride/2];
-                    k2 = c_l[ix]/b_l[ix+stride/2];
-                    a_l[ix] = -a_l[ix-stride/2]*k1;
-                    b_l[ix] = b_l[ix] - c_l[ix-stride/2]*k1 - a_l[ix+stride/2]*k2;
-                    c_l[ix] = -c_l[ix+stride/2]*k2;
+                    k1 = a_l[i]/b_l[i-stride/2];
+                    k2 = c_l[i]/b_l[i+stride/2];
+                    a_l[i] = -a_l[i-stride/2]*k1;
+                    b_l[i] = b_l[i] - c_l[i-stride/2]*k1 - a_l[i+stride/2]*k2;
+                    c_l[i] = -c_l[i+stride/2]*k2;
                     d_l[ix] = d_l[ix] - d_l[ix-stride/2]*k1 - d_l[ix+stride/2]*k2;
                 }
             }
@@ -360,11 +326,11 @@ __kernel void multiLineCyclicReduction(__global double *a_g,
             ix = lix0 + i;
 
             if (i < stride) {
-                d_l[ix] = (d_l[ix] - c_l[ix]*d_l[ix+stride/2])/b_l[ix];
+                d_l[ix] = (d_l[ix] - c_l[i]*d_l[ix+stride/2])/b_l[i];
             }
 
             else {
-                d_l[ix] = (d_l[ix] - a_l[ix]*d_l[ix-stride/2] - c_l[ix]*d_l[ix+stride/2])/b_l[ix];
+                d_l[ix] = (d_l[ix] - a_l[i]*d_l[ix-stride/2] - c_l[i]*d_l[ix+stride/2])/b_l[i];
             }
         }
 

@@ -27,7 +27,6 @@ context = cl.Context([device])
 queue = cl.CommandQueue(context)
 prg = kernels.get_kernels(context)
 
-
 def test_copy_faces():
     nz = 3
     ny = 4
@@ -76,5 +75,91 @@ def test_pThomas():
             x_true = scipy_solve_banded(a, b, c, d_copy[i,j,:])
             assert_allclose(x_true, d[i,j,:])
 
+def test_sum_solutions():
+    nz = 3
+    ny = 4
+    nx = 5
 
+    x_R = np.random.rand(nz, ny, nx)
+    x_UH = np.random.rand(nx)
+    x_LH = np.random.rand(nx)
+    alpha = np.random.rand(nz, ny)
+    beta = np.random.rand(nz, ny)
 
+    x_R_d = cl_array.to_device(queue, x_R)
+    x_UH_d = cl_array.to_device(queue, x_UH)
+    x_LH_d = cl_array.to_device(queue, x_LH)
+    alpha_d = cl_array.to_device(queue, alpha)
+    beta_d = cl_array.to_device(queue, beta)
+
+    prg.sumSolutionsdfdx3D(queue,
+            [nx, ny, nz], None,
+                x_R_d.data, x_UH_d.data, x_LH_d.data,
+                    alpha_d.data, beta_d.data,
+                        np.int32(nx), np.int32(ny), np.int32(nz))
+
+    x_R_calc = x_R_d.get()
+    x_R_true = (x_R + np.einsum('ij,k->ijk', alpha, x_UH) +
+                np.einsum('ij,k->ijk', beta, x_LH))
+    assert_allclose(x_R_calc, x_R_true)
+
+def test_single_line_cyclic_reduction():
+    nz = 3
+    ny = 4
+    nx = 8
+
+    a = np.random.rand(nx)
+    b = np.random.rand(nx)
+    c = np.random.rand(nx)
+    d = np.random.rand(nz, ny, nx)
+    d_copy = d.copy()
+
+    a_d = cl_array.to_device(queue, a)
+    b_d = cl_array.to_device(queue, b)
+    c_d = cl_array.to_device(queue, c)
+    d_d = cl_array.to_device(queue, d)
+
+    prg.singleLineCyclicReduction(queue,
+            [nx, ny, nz], [nx, 1, 1],
+                a_d.data, b_d.data, c_d.data, d_d.data,
+                    np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx),
+                        cl.LocalMemory(nx*8), cl.LocalMemory(nx*8),
+                            cl.LocalMemory(nx*8), cl.LocalMemory(nx*8))
+    d = d_d.get()
+
+    for i in range(nz):
+        for j in range(ny):
+            x_true = scipy_solve_banded(a, b, c, d_copy[i,j,:])
+            assert_allclose(x_true, d[i,j,:])
+            
+def test_multi_line_cyclic_reduction():
+    nz = 16
+    ny = 16
+    nx = 32
+
+    a = np.random.rand(nx)
+    b = np.random.rand(nx)
+    c = np.random.rand(nx)
+    d = np.random.rand(nz, ny, nx)
+    d_copy = d.copy()
+
+    a_d = cl_array.to_device(queue, a)
+    b_d = cl_array.to_device(queue, b)
+    c_d = cl_array.to_device(queue, c)
+    d_d = cl_array.to_device(queue, d)
+
+    by = 2
+    bz = 2
+    prg.multiLineCyclicReduction(queue,
+            [nx, ny, nz], [nx, by, bz],
+                a_d.data, b_d.data, c_d.data, d_d.data,
+                    np.int32(nx), np.int32(ny), np.int32(nz),
+                        np.int32(nx), np.int32(by),
+                            cl.LocalMemory(nx*8), cl.LocalMemory(nx*8),
+                            cl.LocalMemory(nx*8), cl.LocalMemory(nx*by*bz*8))
+    d = d_d.get()
+
+    for i in range(nz):
+        for j in range(ny):
+            x_true = scipy_solve_banded(a, b, c, d_copy[i,j,:])
+            assert_allclose(x_true, d[i,j,:])
