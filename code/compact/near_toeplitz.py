@@ -28,7 +28,7 @@ The tridiagonal system is then of the form:
 .       .       .       .       2       1
 '''
 
-class PrecomputedCR:
+class NearToeplitzSolver:
 
     def __init__(self, ctx, queue, shape, coeffs):
         '''

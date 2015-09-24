@@ -4,8 +4,10 @@ from mpi4py import MPI
 import numpy as np
 from scipy.linalg import solve_banded
 import pyopencl as cl
-import precomputedCR
+
+import near_toeplitz
 import pThomas
+from mpi_util import *
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
@@ -22,39 +24,6 @@ def scipy_solve_banded(a, b, c, rhs):
                     np.append(a[1:], 0)])
     x = solve_banded(l_and_u, ab, rhs)
     return x
-
-def MPI_get_line(comm, direction):
-    '''
-    move this responsibility to the DA
-    '''
-    npz, npy, npx = comm.Get_topo()[0]
-    mz, my, mx = comm.Get_topo()[2]
-    ranks_matrix = np.arange(npz*npy*npx).reshape([npz, npy, npx])
-    global_group = comm.Get_group()
-    if direction == 0:
-        line_group = global_group.Incl(ranks_matrix[mz, my, :])
-    elif direction == 1:
-        line_group = global_group.Incl(ranks_matrix[mz, :, mx])
-    else:
-        line_group = global_group.Incl(ranks_matrix[:, my, mx])
-    line_comm = comm.Create(line_group)
-    return line_comm
-
-def face_type(line_comm, shape):
-    '''
-    move this responsibility to the DA    
-    '''
-    nz, ny, nx = shape
-    npx = line_comm.Get_size()
-    displacements = np.arange(0, 2*npx, 2)
-    line_rank = line_comm.Get_rank()
-    start_z, start_y, start_x = 0, 0, displacements[line_rank]
-    subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, 2*npx],
-                        [nz, ny, 2], [start_z, start_y, start_x])
-    subarray = subarray_aux.Create_resized(0, 8)
-    subarray.Commit()
-    return subarray
-
 
 class CompactFiniteDifferenceSolver:
 
@@ -80,7 +49,7 @@ class CompactFiniteDifferenceSolver:
         if self.mx == self.npx-1:
             coeffs[-2] = 2.
 
-        self.block_solver = precomputedCR.PrecomputedCR(self.ctx, self.queue, [self.nz, self.ny, self.nx], coeffs)
+        self.block_solver = near_toeplitz.NearToeplitzSolver(self.ctx, self.queue, [self.nz, self.ny, self.nx], coeffs)
 
         self.sum_solutions, self.copy_faces, self.compute_RHS = kernels.get_funcs(
                 self.ctx,
