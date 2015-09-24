@@ -4,6 +4,8 @@ import kernels
 import numpy as np
 from scipy.linalg import solve_banded
 from numpy.testing import *
+import pThomas
+import sharedCyclicReduction
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
@@ -58,16 +60,9 @@ def test_pThomas():
     d = np.random.rand(nz, ny, nx)
     d_copy = d.copy()
 
-    a_d = cl_array.to_device(queue, a)
-    b_d = cl_array.to_device(queue, b)
-    c_d = cl_array.to_device(queue, c)
-    c2_d = cl_array.to_device(queue, c)
+    solver = pThomas.pThomas(context, queue, (nz, ny, nx), a, b, c)
     d_d = cl_array.to_device(queue, d)
-
-    prg.pThomasKernel(queue,
-            [nz*ny], None,
-                a_d.data, b_d.data, c_d.data, d_d.data, c2_d.data, np.int32(nx))
-    
+    evt = solver.solve(d_d.data)
     d = d_d.get()
 
     for i in range(nz):
@@ -142,27 +137,23 @@ def test_multi_line_cyclic_reduction():
     c = np.random.rand(nx)
     d = np.random.rand(nz, ny, nx)
     d_copy = d.copy()
-
-    a_d = cl_array.to_device(queue, a)
-    b_d = cl_array.to_device(queue, b)
-    c_d = cl_array.to_device(queue, c)
     d_d = cl_array.to_device(queue, d)
 
     by = 2
     bz = 2
-    prg.multiLineCyclicReduction(queue,
-            [nx, ny, nz], [nx, by, bz],
-                a_d.data, b_d.data, c_d.data, d_d.data,
-                    np.int32(nx), np.int32(ny), np.int32(nz),
-                        np.int32(nx), np.int32(by),
-                            cl.LocalMemory(nx*8), cl.LocalMemory(nx*8),
-                            cl.LocalMemory(nx*8), cl.LocalMemory(nx*by*bz*8))
+    
+    solver = sharedCyclicReduction.SharedMemCyclicReduction(
+            context, queue, (nz, ny, nx), a, b, c)
+    solver.solve(d_d.data, by, bz)
+    
     d = d_d.get()
 
     for i in range(nz):
         for j in range(ny):
             x_true = scipy_solve_banded(a, b, c, d_copy[i,j,:])
-            assert_allclose(x_true, d[i,j,:])
-
+            if i == 0 and j == 0:
+                print x_true[nx/2]
+                print d[0, 0, nx/2] 
+            assert_allclose(x_true, d[i, j, :])
 def test_precomputed_cyclic_reduction():
-    pass
+    

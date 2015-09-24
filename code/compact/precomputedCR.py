@@ -1,5 +1,6 @@
 import pyopencl as cl
 import numpy as np
+import sandbox
 
 '''
 A tridiagonal solver for solving
@@ -26,7 +27,6 @@ The tridiagonal system is then of the form:
 .       .       .       1/4     1       1/4
 .       .       .       .       2       1
 '''
-
 
 class PrecomputedCR:
 
@@ -82,19 +82,7 @@ class PrecomputedCR:
         cl.enqueue_copy(self.queue, self.k1_first_g, k1_first)
         cl.enqueue_copy(self.queue, self.k1_last_g, k1_last)
 
-        # read in kernels:
-        with open('kernels.cl') as f:
-            src = f.read()
-
-        # add the double precision extension (if required)
-        if 'NVIDIA' in self.platform.name:
-            src = '#pragma OPENCL EXTENSION cl_khr_fp64: enable\n' + src
-
-        # compile kernels
-        if 'NVIDIA' in self.platform.name:
-            self.prg = cl.Program(self.ctx, src).build(options=['-cl-nv-arch sm_35'])
-        else:
-            self.prg = cl.Program(self.ctx, src).build(options=['-O2'])
+        self.forward_reduction, self.back_substitution = sandbox.get_funcs(self.ctx, 'kernels.cl', 'globalForwardReduction', 'globalBackSubstitution')
 
     def solve(self, x_g, blocks, print_profile=False):
         '''
@@ -115,18 +103,17 @@ class PrecomputedCR:
         stride = 1
         for i in np.arange(int(np.log2(self.nx))):
             stride *= 2
-            evt = self.prg.globalForwardReduction(self.queue, [self.nx/stride, self.ny, self.nz], [self.nx/stride, by, bz],
+            evt = self.forward_reduction(self.queue, [self.nx/stride, self.ny, self.nz], [self.nx/stride, by, bz],
                 self.a_g, self.b_g, self.c_g, x_g, self.k1_g, self.k2_g,
                     self.b_first_g, self.k1_first_g, self.k1_last_g,
                         np.int32(self.nx), np.int32(self.ny), np.int32(self.nz),
                             np.int32(stride))
             evt.wait()
         
-        
         # `stride` is now equal to `nx`
         for i in np.arange(int(np.log2(self.nx))-1):
             stride /= 2
-            evt = self.prg.globalBackSubstitution(self.queue, [self.nx/stride, self.ny, self.nz], [self.nx/stride, by, bz],
+            evt = self.back_substitution(self.queue, [self.nx/stride, self.ny, self.nz], [self.nx/stride, by, bz],
                 self.a_g, self.b_g, self.c_g, x_g, self.b_first_g,
                     np.float64(b1), np.float64(c1),
                         np.float64(ai), np.float64(bi), np.float64(ci),
