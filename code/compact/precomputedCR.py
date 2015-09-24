@@ -1,6 +1,6 @@
 import pyopencl as cl
 import numpy as np
-import sandbox
+import kernels
 
 '''
 A tridiagonal solver for solving
@@ -82,7 +82,7 @@ class PrecomputedCR:
         cl.enqueue_copy(self.queue, self.k1_first_g, k1_first)
         cl.enqueue_copy(self.queue, self.k1_last_g, k1_last)
 
-        self.forward_reduction, self.back_substitution = sandbox.get_funcs(self.ctx, 'kernels.cl', 'globalForwardReduction', 'globalBackSubstitution')
+        self.forward_reduction, self.back_substitution = kernels.get_funcs(self.ctx, 'kernels.cl', 'globalForwardReduction', 'globalBackSubstitution')
 
     def solve(self, x_g, blocks, print_profile=False):
         '''

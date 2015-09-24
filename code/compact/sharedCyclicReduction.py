@@ -1,6 +1,6 @@
 import pyopencl as cl
 import numpy as np
-import sandbox
+import kernels
 
 
 class SharedMemCyclicReduction:
@@ -21,7 +21,7 @@ class SharedMemCyclicReduction:
         cl.enqueue_copy(queue, self.b_g, b)
         cl.enqueue_copy(queue, self.c_g, c)
         
-        self.solver, = sandbox.get_funcs(ctx, 'kernels.cl',
+        self.solver, = kernels.get_funcs(ctx, 'kernels.cl',
                 'multiLineCyclicReduction')
 
     def solve(self, x_g, by, bz):

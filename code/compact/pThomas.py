@@ -1,6 +1,6 @@
 import pyopencl as cl
 import numpy as np
-import sandbox
+import kernels
 
 class pThomas:
     def __init__(self, ctx, queue, shape, a, b, c):
@@ -24,7 +24,7 @@ class pThomas:
         cl.enqueue_copy(queue, self.c_g, c)
         cl.enqueue_copy(queue, self.c2_g, c)
         
-        self.pThomas, = sandbox.get_funcs(ctx, 'kernels.cl', 'pThomasKernel')
+        self.pThomas, = kernels.get_funcs(ctx, 'kernels.cl', 'pThomasKernel')
     
     def solve(self, x_g):
         evt = self.pThomas(self.queue, [self.nz*self.ny], None,
