@@ -1,11 +1,11 @@
 import mpiDA
 import kernels
-
 from mpi4py import MPI
 import numpy as np
 from scipy.linalg import solve_banded
 import pyopencl as cl
 import precomputedCR
+import pThomas
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
@@ -25,6 +25,7 @@ def scipy_solve_banded(a, b, c, rhs):
 
 def MPI_get_line(comm, direction):
     '''
+    move this responsibility to the DA
     '''
     npz, npy, npx = comm.Get_topo()[0]
     mz, my, mx = comm.Get_topo()[2]
@@ -41,7 +42,7 @@ def MPI_get_line(comm, direction):
 
 def face_type(line_comm, shape):
     '''
-    
+    move this responsibility to the DA    
     '''
     nz, ny, nx = shape
     npx = line_comm.Get_size()
@@ -54,6 +55,7 @@ def face_type(line_comm, shape):
     subarray.Commit()
     return subarray
 
+
 class CompactFiniteDifferenceSolver:
 
     def __init__(self, ctx, queue, comm, sizes):
@@ -64,14 +66,12 @@ class CompactFiniteDifferenceSolver:
         self.ctx = ctx
         self.queue = queue
         self.comm = comm
-        self.prg = kernels.get_kernels(self.ctx)
 
         self.NZ, self.NY, self.NX = sizes
         self.mz, self.my, self.mx = self.comm.Get_topo()[2] # this proc's ID in each direction
         self.npz, self.npy, self.npx = self.comm.Get_topo()[0] # num procs in each direction
         self.nz, self.ny, self.nx = self.NZ/self.npz, self.NY/self.npy, self.NX/self.npx # local sizes
 
-        self.prg = kernels.get_kernels(self.ctx)
         self.da = mpiDA.DA(self.comm.Clone(), [self.nz, self.ny, self.nx], [self.npz, self.npy, self.npx], 1)
         
         coeffs = [1., 1./4, 1./4, 1., 1./4, 1./4, 1.]
@@ -82,6 +82,10 @@ class CompactFiniteDifferenceSolver:
 
         self.block_solver = precomputedCR.PrecomputedCR(self.ctx, self.queue, [self.nz, self.ny, self.nx], coeffs)
 
+        self.sum_solutions, self.copy_faces, self.compute_RHS = kernels.get_funcs(
+                self.ctx,
+                'kernels.cl', 'sumSolutionsdfdx3D',
+                'copyFaces', 'computeRHSdfdx')
 
     def dfdx(self, f_global, dx, x_global, f_local, f_g, x_g, print_timings=False):
         '''
@@ -195,7 +199,7 @@ class CompactFiniteDifferenceSolver:
         subarray = face_type(line_comm, [nz, ny, nx])
         x_R_faces = np.zeros([nz, ny, 2], dtype=np.float64)
         x_R_faces_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, x_R_faces.size*8)
-        self.prg.copyFaces(self.queue,
+        self.copy_faces(self.queue,
                 [1, ny, nz], None,
                     x_g, x_R_faces_g, np.int32(nx), np.int32(ny), np.int32(nz))
         cl.enqueue_copy(self.queue, x_R_faces, x_R_faces_g)
@@ -237,20 +241,11 @@ class CompactFiniteDifferenceSolver:
             cl.enqueue_copy(self.queue, d_reduced_g, -d_reduced)
 
             params = np.zeros(2*npx*nz*ny, dtype=np.float64)
-            a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, 2*npx*8)
-            b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, 2*npx*8)
-            c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, 2*npx*8)
-            c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, 2*npx*8)
-            cl.enqueue_copy(self.queue, a_g, a_reduced)
-            cl.enqueue_copy(self.queue, b_g, b_reduced)
-            cl.enqueue_copy(self.queue, c_g, c_reduced)
-            cl.enqueue_copy(self.queue, c2_g, c_reduced)
-            evt = self.prg.pThomasKernel(self.queue, [nz*ny], None,
-                a_g, b_g, c_g, d_reduced_g, c2_g,
-                    np.int32(2*npx))
+            reduced_solver = pThomas.pThomas(self.ctx, self.queue, [nz, ny, 2*npx],
+                    a_reduced, b_reduced, c_reduced)
+            reduced_solver.solve(d_reduced_g)
             evt = cl.enqueue_copy(self.queue, params, d_reduced_g)
             evt.wait()
-
             params = params.reshape([nz, ny, 2*npx])
         else:
             params = None
@@ -286,7 +281,7 @@ class CompactFiniteDifferenceSolver:
         cl.enqueue_copy(self.queue, x_UH_line_g, x_UH_line)
         cl.enqueue_copy(self.queue, x_LH_line_g, x_LH_line)
         
-        evt = self.prg.sumSolutionsdfdx3D(self.queue, [nx, ny, nz], None,
+        evt = self.sum_solutions(self.queue, [nx, ny, nz], None,
             x_g, x_UH_line_g, x_LH_line_g, alpha_g, beta_g,
                 np.int32(nx), np.int32(ny), np.int32(nz))        
         evt.wait()
@@ -311,11 +306,10 @@ class CompactFiniteDifferenceSolver:
         '''
         #---------------------------------------------------------------------------
         # compute the RHS of the system
-
         nz, ny, nx = f_global.shape   
         self.da.global_to_local(f_global, f_local)
         evt = cl.enqueue_copy(self.queue, f_g, f_local)       
-        evt = self.prg.computeRHSdfdx(self.queue, [nx, ny, nz], None,
+        evt = self.compute_RHS(self.queue, [nx, ny, nz], None,
             f_g, x_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
                 np.int32(mx), np.int32(npx))
         evt.wait()
