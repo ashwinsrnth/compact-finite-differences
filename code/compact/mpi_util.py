@@ -28,7 +28,6 @@ def MPI_get_line(comm, direction):
 
 def face_type(line_comm, shape):
     '''
-    move this responsibility to the DA    
     '''
     nz, ny, nx = shape
     npx = line_comm.Get_size()

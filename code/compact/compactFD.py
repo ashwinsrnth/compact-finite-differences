@@ -3,11 +3,19 @@ import kernels
 from mpi4py import MPI
 import numpy as np
 from scipy.linalg import solve_banded
+import matplotlib.pyplot as plt
 import pyopencl as cl
-
+import pyopencl.array as cl_array
 import near_toeplitz
 import pThomas
 from mpi_util import *
+
+def get_3d_function_and_derivs_1(x, y, z):
+    f = z*y*np.sin(x) + z*x*np.sin(y) + x*y*np.sin(z)
+    dfdx = z*y*np.cos(x) + z*np.sin(y) + y*np.sin(z)
+    dfdy = z*np.sin(x) + z*x*np.cos(y) + x*np.sin(z)
+    dfdz = y*np.sin(x) + x*np.sin(y) + x*y*np.cos(z)
+    return f, dfdx, dfdy, dfdz
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
@@ -25,261 +33,168 @@ def scipy_solve_banded(a, b, c, rhs):
     x = solve_banded(l_and_u, ab, rhs)
     return x
 
-class CompactFiniteDifferenceSolver:
+comm = MPI.COMM_WORLD
+size = comm.Get_size()
+size_per_dir = int(size**(1./3))
+comm = comm.Create_cart([size_per_dir, size_per_dir, size_per_dir])
+rank = comm.Get_rank()
+platform = cl.get_platforms()[0]
+if 'NVIDIA' in platform.name:
+    device = platform.get_devices()[rank%2]
+else:
+    device = platform.get_devices()[0]
+ctx = cl.Context([device])
+queue = cl.CommandQueue(ctx)
 
-    def __init__(self, ctx, queue, comm, sizes):
-        '''
-        sizes: tuple/list
-            The global size of the problem [NZ, NY, NX]
-        '''
-        self.ctx = ctx
-        self.queue = queue
-        self.comm = comm
+NX = NY = NZ = 128
 
-        self.NZ, self.NY, self.NX = sizes
-        self.mz, self.my, self.mx = self.comm.Get_topo()[2] # this proc's ID in each direction
-        self.npz, self.npy, self.npx = self.comm.Get_topo()[0] # num procs in each direction
-        self.nz, self.ny, self.nx = self.NZ/self.npz, self.NY/self.npy, self.NX/self.npx # local sizes
+nx = NX/size_per_dir
+ny = NY/size_per_dir
+nz = NZ/size_per_dir
 
-        self.da = mpiDA.DA(self.comm.Clone(), [self.nz, self.ny, self.nx], [self.npz, self.npy, self.npx], 1)
-        
-        coeffs = [1., 1./4, 1./4, 1., 1./4, 1./4, 1.]
-        if self.mx == 0:
-            coeffs[1] = 2.
-        if self.mx == self.npx-1:
-            coeffs[-2] = 2.
+npz, npy, npx = comm.Get_topo()[0]
+mz, my, mx = comm.Get_topo()[2]
 
-        self.block_solver = near_toeplitz.NearToeplitzSolver(self.ctx, self.queue, [self.nz, self.ny, self.nx], coeffs)
+dx = 2*np.pi/(NX-1)
+dy = 2*np.pi/(NY-1)
+dz = 2*np.pi/(NZ-1)
 
-        self.sum_solutions, self.copy_faces, self.compute_RHS = kernels.get_funcs(
-                self.ctx,
-                'kernels.cl', 'sumSolutionsdfdx3D',
-                'copyFaces', 'computeRHSdfdx')
+x_start, y_start, z_start = mx*nx*dx, my*ny*dy, mz*nz*dz
+z_global, y_global, x_global = np.meshgrid(
+    np.linspace(z_start, z_start + (nz-1)*dz, nz),
+    np.linspace(y_start, y_start + (ny-1)*dy, ny),
+    np.linspace(x_start, x_start + (nx-1)*dx, nx),
+    indexing='ij')
 
-    def dfdx(self, f_global, dx, x_global, f_local, f_g, x_g, print_timings=False):
-        '''
-        Get the local x-derivative given
-        the local portion of f.
-        
-        f_global: The function values for this process
-        dx: Grid spacing
-        x_global: Space for solution
-        f_local: Space for f_local, add 2 to each dimension of f
-        f_g: An OpenCL buffer for f_local
-        x_g: An OpenCL buffer for x_global
-        '''
-        rank = self.comm.Get_rank()
+f_global, dfdx_true_global, _, _ = get_3d_function_and_derivs_1(x_global, y_global, z_global)
 
-        if rank == 0 and print_timings:
-            timing = True
-        else:
-            timing = False
+# preprocessing - get the kernels
+copy_faces, compute_RHS, sum_solutions= kernels.get_funcs(ctx, 'kernels.cl',
+    'copyFaces', 'computeRHSdfdx', 'sumSolutionsdfdx3D')
 
-        size = self.comm.Get_size()
-
-        mz, my, mx = self.mz, self.my, self.mx
-        NZ, NY, NX = self.NZ, self.NY, self.NX
-        nz, ny, nx = self.nz, self.ny, self.nx
-        npz, npy, npx = self.npz, self.npy, self.npx
-        assert(f_global.shape == (nz, ny, nx))
-               
-        rhs = self.compute_rhs(f_global, dx, f_local, x_global, f_g, x_g, mx, npx)
-
-        t1 = MPI.Wtime()
- 
-        #---------------------------------------------------------------------------
-        # create the LHS for the tridiagonal system of the compact difference scheme:
-        a_line_local = np.ones(nx, dtype=np.float64)*(1./4)
-        b_line_local = np.ones(nx, dtype=np.float64)
-        c_line_local = np.ones(nx, dtype=np.float64)*(1./4)
-
-        if mx == 0:
-            c_line_local[0] = 2.0
-            a_line_local[0] = 0.0
-
-        if mx == npx-1:
-            a_line_local[-1] = 2.0
-            c_line_local[-1] = 0.0
-
-        #------------------------------------------------------------------------------
-        # each processor computes x_R, x_LH_line and x_UH_line:
-        r_LH_line = np.zeros(nx, dtype=np.float64)
-        r_UH_line = np.zeros(nx, dtype=np.float64)
-        r_LH_line[-1] = -c_line_local[-1]
-        r_UH_line[0] = -a_line_local[0]
-
-        x_LH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_LH_line)
-        x_UH_line = scipy_solve_banded(a_line_local, b_line_local, c_line_local, r_UH_line)
-
-        #a_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
-        #b_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
-        #c_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
-        #c2_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
-        #cl.enqueue_copy(self.queue, a_g, a_line_local)
-        #cl.enqueue_copy(self.queue, b_g, b_line_local)
-        #cl.enqueue_copy(self.queue, c_g, c_line_local)
-        #cl.enqueue_copy(self.queue, c2_g, c_line_local)
-        #evt = self.prg.pThomasKernel(self.queue, [nz*ny], None,
-        #     a_g, b_g, c_g, x_g, c2_g, np.int32(nx))
-        #evt = self.prg.multiLineCyclicReduction(self.queue, [nx, ny, nz], [nx, 2, 2],
-        #    a_g, b_g, c_g, x_g, np.int32(nx), np.int32(ny), np.int32(nz), np.int32(nx), np.int32(2),
-        #        cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8), cl.LocalMemory(nx*4*8)) 
-        self.block_solver.solve(x_g, [2, 2])
-        
-        t2 = MPI.Wtime()
-
-        if timing:
-            print 'Solving for x_R: total: ', t2-t1
-
-        #---------------------------------------------------------------------------
-        # the first and last elements in x_LH and x_UH,
-        # and also the first and last "faces" in x_R,
-        # need to be gathered at the rank
-        # that is at the beginning of the line (line_root)
-
-        # to avoid a separate communicator for this purpose,
-        # we use Gatherv with lengths and displacements as 0
-        # for all processes not in the line
-
-        if mx == 0:
-            x_LH_global = np.zeros([2*npx], dtype=np.float64)
-            x_UH_global = np.zeros([2*npx], dtype=np.float64)
-        else:
-            x_LH_global = None
-            x_UH_global = None
-
-        line_comm = MPI_get_line(self.comm, 0)
-        line_rank = line_comm.Get_rank()
-
-        lengths = np.ones(npx)*2
-        displacements = np.arange(0, 2*npx, 2)
-
-        line_comm.Gatherv([np.array([x_LH_line[0], x_LH_line[-1]]), MPI.DOUBLE],
-           [x_LH_global, lengths, displacements, MPI.DOUBLE])
-
-        line_comm.Gatherv([np.array([x_UH_line[0], x_UH_line[-1]]), MPI.DOUBLE],
-           [x_UH_global, lengths, displacements, MPI.DOUBLE])
-
-        if mx == 0:
-            x_R_global = np.zeros([nz, ny, 2*npx], dtype=np.float64)
-        else:
-            x_R_global = None
-
-        subarray = face_type(line_comm, [nz, ny, nx])
-        x_R_faces = np.zeros([nz, ny, 2], dtype=np.float64)
-        x_R_faces_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, x_R_faces.size*8)
-        self.copy_faces(self.queue,
-                [1, ny, nz], None,
-                    x_g, x_R_faces_g, np.int32(nx), np.int32(ny), np.int32(nz))
-        cl.enqueue_copy(self.queue, x_R_faces, x_R_faces_g)
-
-        # since we're using a subarray, set lengths to 1:
-        lengths = np.ones(npx)*1
-        displacements = np.arange(0, 2*npx, 2)
-
-        line_comm.Gatherv([x_R_faces, MPI.DOUBLE],
-            [x_R_global, lengths, displacements, subarray])
-
-        # assemble and solve the reduced systems at all ranks mx=0
-        # to compute the transfer parameters
-
-        if line_rank == 0:
-            a_reduced = np.zeros([2*npx], dtype=np.float64)
-            b_reduced = np.zeros([2*npx], dtype=np.float64)
-            c_reduced = np.zeros([2*npx], dtype=np.float64)
-            d_reduced = np.zeros([nz, ny, 2*npx], dtype=np.float64)
-            d_reduced[...] = x_R_global
-
-            a_reduced[0::2] = -1.
-            a_reduced[1::2] = x_UH_global[1::2]
-            b_reduced[0::2] = x_UH_global[0::2]
-            b_reduced[1::2] = x_LH_global[1::2]
-
-            c_reduced[0::2] = x_LH_global[0::2]
-            c_reduced[1::2] = -1.
-
-            a_reduced[0], c_reduced[0], d_reduced[:, :, 0] = 0.0, 0.0, 0.0
-            b_reduced[0] = 1.0
-            a_reduced[-1], c_reduced[-1], d_reduced[:, :, -1] = 0.0, 0.0, 0.0
-            b_reduced[-1] = 1.0
-
-            a_reduced[1] = 0.
-            c_reduced[-2] = 0.
-
-            d_reduced_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, 2*nz*ny*npx*8)
-            cl.enqueue_copy(self.queue, d_reduced_g, -d_reduced)
-
-            params = np.zeros(2*npx*nz*ny, dtype=np.float64)
-            reduced_solver = pThomas.pThomas(self.ctx, self.queue, [nz, ny, 2*npx],
-                    a_reduced, b_reduced, c_reduced)
-            reduced_solver.solve(d_reduced_g)
-            evt = cl.enqueue_copy(self.queue, params, d_reduced_g)
-            evt.wait()
-            params = params.reshape([nz, ny, 2*npx])
-        else:
-            params = None
-
-        #------------------------------------------------------------------------------
-        # scatter the parameters back
-        self.comm.Barrier()
-
-        params_local = np.zeros([nz, ny, 2], dtype=np.float64)
-
-        line_comm.Scatterv([params, lengths, displacements, subarray],
-            [params_local, MPI.DOUBLE])
-
-        alpha = params_local[:, :, 0].copy()
-        beta = params_local[:, :, 1].copy()
-
-        self.comm.Barrier()
-        t3 = MPI.Wtime()
-
-        if timing:
-            print 'Solving the reduced system: ', t3-t2
-
-        #------------------------------------------------------------------------------
-        # sum the solutions
-
-        alpha_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*8)
-        beta_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nz*ny*8)
-        x_UH_line_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
-        x_LH_line_g = cl.Buffer(self.ctx, cl.mem_flags.READ_WRITE, nx*8)
-
-        cl.enqueue_copy(self.queue, alpha_g, alpha)
-        cl.enqueue_copy(self.queue, beta_g, beta)
-        cl.enqueue_copy(self.queue, x_UH_line_g, x_UH_line)
-        cl.enqueue_copy(self.queue, x_LH_line_g, x_LH_line)
-        
-        evt = self.sum_solutions(self.queue, [nx, ny, nz], None,
-            x_g, x_UH_line_g, x_LH_line_g, alpha_g, beta_g,
-                np.int32(nx), np.int32(ny), np.int32(nz))        
-        evt.wait()
-
-        cl.enqueue_barrier(self.queue)
-        
-        self.comm.Barrier()
-        t4 = MPI.Wtime()
-
-        if timing:
-            print 'Summing the solutions - total: ', t4-t3
-
-        if timing:
-            print 'Total time: ', t4-t1
-
-        evt = cl.enqueue_copy(self.queue, x_global, x_g)
-        evt.wait()
-            
-    def compute_rhs(self, f_global, dx, f_local, x_global, f_g, x_g, mx, npx):
-        '''
-        Compute the RHS of the system:
-        '''
-        #---------------------------------------------------------------------------
-        # compute the RHS of the system
-        nz, ny, nx = f_global.shape   
-        self.da.global_to_local(f_global, f_local)
-        evt = cl.enqueue_copy(self.queue, f_g, f_local)       
-        evt = self.compute_RHS(self.queue, [nx, ny, nz], None,
-            f_g, x_g, np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
+# preprocessing - compute the RHS
+da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
+f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
+d = np.zeros([nz, ny, nx], dtype=np.float64)
+da.global_to_local(f_global, f_local)
+f_d = cl_array.to_device(queue, f_local)
+d_d = cl_array.to_device(queue, d)
+compute_RHS(queue, [nz, ny, nx], None,
+        f_d.data, d_d.data,
+            np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
                 np.int32(mx), np.int32(npx))
-        evt.wait()
-        self.comm.Barrier()
+
+# preprocessing -get the line_comm
+line_comm = MPI_get_line(comm, 0)
+
+# preprocessing - solve for x_LH and x_UH:
+a = np.ones(nx, dtype=np.float64)*(1./4)
+b = np.ones(nx, dtype=np.float64)
+c = np.ones(nx, dtype=np.float64)*(1./4)
+r_UH = np.zeros(nx, dtype=np.float64)
+r_LH = np.zeros(nx, dtype=np.float64)
+
+if mx == 0:
+    c[0] =  2.0
+    a[0] = 0.0
+
+if mx == npx-1:
+    a[-1] = 2.0
+    c[-1] = 0.0
+
+r_UH[0] = -a[0]
+r_LH[-1] = -c[-1]
+
+x_UH = scipy_solve_banded(a, b, c, r_UH)
+x_LH = scipy_solve_banded(a, b, c, r_LH)
+
+# preprocessing - setup the reduced system:
+x_UH_line = np.zeros(2*npx, dtype=np.float64)
+x_LH_line = np.zeros(2*npx, dtype=np.float64)
+lengths = np.ones(npx)*2
+displacements = np.arange(0, 2*npx, 2)
+
+line_comm.Gatherv([np.array([x_UH[0], x_UH[-1]]), MPI.DOUBLE],
+   [x_UH_line, lengths, displacements, MPI.DOUBLE])
+
+line_comm.Gatherv([np.array([x_LH[0], x_LH[-1]]), MPI.DOUBLE],
+   [x_LH_line, lengths, displacements, MPI.DOUBLE])
+
+if mx == 0:
+    a_reduced = np.zeros(2*npx, dtype=np.float64)
+    b_reduced = np.zeros(2*npx, dtype=np.float64)
+    c_reduced = np.zeros(2*npx, dtype=np.float64)
+    a_reduced[0::2] = -1.
+    a_reduced[1::2] = x_UH_line[1::2]
+    b_reduced[0::2] = x_UH_line[0::2]
+    b_reduced[1::2] = x_LH_line[1::2]
+    c_reduced[0::2] = x_LH_line[0::2]
+    c_reduced[1::2] = -1.
+    a_reduced[0], c_reduced[0] = 0.0, 0.0
+    b_reduced[0] = 1.0
+    a_reduced[-1], c_reduced[-1] = 0.0, 0.0
+    b_reduced[-1] = 1.0
+    a_reduced[1] = 0.
+    c_reduced[-2] = 0.
+    reduced_solver = pThomas.pThomas(ctx, queue, [nz, ny, 2*npx],
+            a_reduced, b_reduced, c_reduced)
+
+# solve the local systems for x_R:
+coeffs = [1., 1./4, 1./4, 1., 1./4, 1./4, 1.]
+if mx == 0:
+    coeffs[1] = 2.
+if mx == npx-1:
+    coeffs[-2] = 2.
+block_solver = near_toeplitz.NearToeplitzSolver(ctx, queue, (nz, ny, nx),
+    coeffs)
+block_solver.solve(d_d.data, [2, 2])
+
+# copy the faces:
+x_R_faces = np.zeros([nz, ny, 2])
+x_R_faces_line = np.zeros([nz, ny, 2*npx])
+
+x_R_faces_d = cl_array.to_device(queue, x_R_faces)
+copy_faces(queue, [1, ny, nz], None,
+        d_d.data, x_R_faces_d.data, np.int32(nx), np.int32(ny), np.int32(nz))
+x_R_faces[...] = x_R_faces_d.get()
+
+lengths = np.ones(npx)
+displacements = np.arange(0, 2*npx, 2)
+subarray = face_type(line_comm, [nz, ny, nx])
+line_comm.Gatherv([x_R_faces, MPI.DOUBLE],
+        [x_R_faces_line, lengths, displacements, subarray])
+
+# solve the reduced system:
+if mx == 0:
+    x_R_faces_line[:, :, 0] = 0.0
+    x_R_faces_line[:, :, -1] = 0.0
+    d_reduced_d = cl_array.to_device(queue, -x_R_faces_line)
+    reduced_solver.solve(d_reduced_d.data)
+    params = d_reduced_d.get()
+else:
+    params = None
+
+# scatter parameters
+params_local = np.zeros([nz, ny, 2], dtype=np.float64)
+line_comm.Scatterv([params, lengths, displacements, subarray],
+       [params_local, MPI.DOUBLE]) 
+
+alpha = params_local[:, :, 0].copy()
+beta = params_local[:, :, 1].copy()
+
+x_UH_d = cl_array.to_device(queue, x_UH)
+x_LH_d = cl_array.to_device(queue, x_LH)
+alpha_d = cl_array.to_device(queue, alpha)
+beta_d = cl_array.to_device(queue, beta)
+
+sum_solutions(queue, [nz, ny, nz], None,
+        d_d.data, x_UH_d.data, x_LH_d.data, alpha_d.data, beta_d.data,
+            np.int32(nx), np.int32(ny), np.int32(nz))
+x = d_d.get()
+
+if rank == 3:
+    plt.subplot(211)
+    plt.pcolor(x[:, :, 8])
+    plt.subplot(212)
+    plt.pcolor(dfdx_true_global[:, :, 8])
+    plt.savefig('compare.png')
