@@ -1,4 +1,5 @@
-import mpiDA
+import sys
+sys.path.append('tridiagonal_solvers')
 import kernels
 from mpi4py import MPI
 import numpy as np
@@ -7,7 +8,7 @@ import matplotlib.pyplot as plt
 import pyopencl as cl
 import pyopencl.array as cl_array
 import near_toeplitz
-import pThomas
+import pthomas
 from mpi_util import *
 
 def get_3d_function_and_derivs_1(x, y, z):
@@ -75,13 +76,13 @@ copy_faces, compute_RHS_dfdx,  sum_solutions= kernels.get_funcs(ctx, 'kernels.cl
     'copyFaces', 'computeRHSdfdx', 'sumSolutionsdfdx3D')
 
 # preprocessing - compute the RHS
-da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
+da = DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
 f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
 d = np.zeros([nz, ny, nx], dtype=np.float64)
 da.global_to_local(f_global, f_local)
 f_d = cl_array.to_device(queue, f_local)
 d_d = cl_array.to_device(queue, d)
-compute_RHS_dfdx(queue, [nz, ny, nx], None,
+compute_RHS_dfdx(queue, [nx, ny, nz], None,
         f_d.data, d_d.data,
             np.float64(dx), np.int32(nx), np.int32(ny), np.int32(nz),
                 np.int32(mx), np.int32(npx))
@@ -138,7 +139,7 @@ if mx == 0:
     b_reduced[-1] = 1.0
     a_reduced[1] = 0.
     c_reduced[-2] = 0.
-    reduced_solver = pThomas.pThomas(ctx, queue, [nz, ny, 2*npx],
+    reduced_solver = pthomas.PThomas(ctx, queue, [nz, ny, 2*npx],
             a_reduced, b_reduced, c_reduced)
 
 # solve the local systems for x_R:
@@ -207,7 +208,7 @@ copy_faces, compute_RHS_dfdy,  sum_solutions= kernels.get_funcs(ctx, 'kernels.cl
     'copyFaces', 'computeRHSdfdy', 'sumSolutionsdfdx3D')
 
 # preprocessing - compute the RHS
-da = mpiDA.DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
+da = DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
 f_local = np.zeros([nz+2, ny+2, nx+2], dtype=np.float64)
 d = np.zeros([nz, ny, nx], dtype=np.float64)
 da.global_to_local(f_global, f_local)
@@ -274,7 +275,7 @@ if my == 0:
     b_reduced[-1] = 1.0
     a_reduced[1] = 0.
     c_reduced[-2] = 0.
-    reduced_solver = pThomas.pThomas(ctx, queue, [nz, ny, 2*npy],
+    reduced_solver = pthomas.PThomas(ctx, queue, [nz, nx, 2*npy],
             a_reduced, b_reduced, c_reduced)
 
 # solve the local systems for x_R:
