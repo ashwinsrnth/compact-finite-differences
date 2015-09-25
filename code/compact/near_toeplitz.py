@@ -33,17 +33,18 @@ class NearToeplitzSolver:
     def __init__(self, ctx, queue, shape, coeffs):
         '''
         Create context for the Cyclic Reduction Solver
-        that solves a tridiagonal system with
-        diagonals
-        a = (1/4, 1/4, 1/4 .... 2)
-        b[:] = (1, 1, 1, 1... 1)
-        c[:] = (2, 1/4, 1/4, ... 1/4)
+        that solves a "near-toeplitz"
+        tridiagonal system with
+        diagonals:
+        a = (_, ai, ai .... an)
+        b[:] = (b1, bi, bi, bi... bn)
+        c[:] = (c1, ci, ci, ... _)
 
         Parameters
         ----------
         ctx: PyOpenCL context
         queue: PyOpenCL command queue
-        system_size: The size of the tridiagonal system.
+        shape: The size of the tridiagonal system.
         coeffs: A list of coefficients that make up the tridiagonal matrix:
             [b1, c1, ai, bi, ci, an, bn]
         '''

@@ -10,6 +10,7 @@ def get_funcs(ctx, filename, *args):
         src = f.read()
     platform = ctx.devices[0].platform
     if 'NVIDIA' in platform.name:
+        src = '#pragma OPENCL EXTENSION cl_khr_fp64: enable\n' + src
         prg = cl.Program(ctx, src).build(options=['-cl-nv-arch sm_35'])
     else:
         prg = cl.Program(ctx, src).build(options=['-O2'])

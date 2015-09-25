@@ -2,7 +2,7 @@ import pyopencl as cl
 import numpy as np
 import kernels
 
-class pThomas:
+class PThomas:
     def __init__(self, ctx, queue, shape, a, b, c):
         '''
         Create context for pThomas (thread-parallel Thomas algorithm)

@@ -4,7 +4,7 @@ import kernels
 import numpy as np
 from scipy.linalg import solve_banded
 from numpy.testing import *
-import pThomas
+import pthomas
 import sharedCyclicReduction
 import kernels
 import mpiDA
@@ -118,7 +118,7 @@ def test_pThomas():
     d = np.random.rand(nz, ny, nx)
     d_copy = d.copy()
 
-    solver = pThomas.pThomas(context, queue, (nz, ny, nx), a, b, c)
+    solver = pthomas.PThomas(context, queue, (nz, ny, nx), a, b, c)
     d_d = cl_array.to_device(queue, d)
     evt = solver.solve(d_d.data)
     d = d_d.get()
