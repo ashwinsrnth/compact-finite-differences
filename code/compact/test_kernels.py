@@ -5,7 +5,7 @@ import numpy as np
 from scipy.linalg import solve_banded
 from numpy.testing import *
 import pthomas
-import sharedCyclicReduction
+import sharedcyclicreduction
 import kernels
 import mpiDA
 
@@ -174,7 +174,7 @@ def test_single_line_cyclic_reduction():
     by = 1
     bz = 1
     
-    solver = sharedCyclicReduction.SharedMemCyclicReduction(
+    solver = sharedcyclicreduction.SharedMemCyclicReduction(
             context, queue, (nz, ny, nx), a, b, c)
     solver.solve(d_d.data, by, bz)
     
@@ -208,7 +208,7 @@ def test_multi_line_cyclic_reduction():
     by = 2
     bz = 2
     
-    solver = sharedCyclicReduction.SharedMemCyclicReduction(
+    solver = sharedcyclicreduction.SharedMemCyclicReduction(
             context, queue, (nz, ny, nx), a, b, c)
     solver.solve(d_d.data, by, bz)
     
