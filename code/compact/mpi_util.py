@@ -4,13 +4,18 @@ from mpi4py import MPI
 class DA:
 
     def __init__(self, comm, local_dims, proc_sizes, stencil_width):
+        comm = comm.Create_cart(proc_sizes)
         self.comm = comm
         self.local_dims = local_dims
         self.proc_sizes = proc_sizes
         self.stencil_width = stencil_width
         self.rank = comm.Get_rank()
         self.size = comm.Get_size()
-        assert(isinstance(comm, MPI.Cartcomm))
+
+        self.nz, self.ny, self.nx = local_dims
+        self.npz, self.npy, self.npx = proc_sizes
+        self.mz, self.my, self.mx = self.comm.Get_topo()[2]
+
         assert(self.size == reduce(lambda a,b: a*b, proc_sizes))
         self._create_halo_arrays()
 
@@ -18,9 +23,9 @@ class DA:
         # Update the local array (which includes ghost points)
         # from the global array (which does not)
 
-        npz, npy, npx = self.proc_sizes
-        nz, ny, nx = self.local_dims
-        zloc, yloc, xloc = self.comm.Get_topo()[2]
+        npz, npy, npx = self.npz, self.npy, self.npx
+        nz, ny, nx = self.nz, self.ny, self.nz
+        mz, my, mx = self.mz, self.my, self.mx
         sw = self.stencil_width
 
         # copy inner elements:
@@ -39,7 +44,7 @@ class DA:
         # perform swaps in x-direction
         sendbuf = [self.right_send_halo, MPI.DOUBLE]
         recvbuf = [self.left_recv_halo, MPI.DOUBLE]
-        req1 = self._forward_swap(sendbuf, recvbuf, self.rank-1, self.rank+1, xloc, npx, 10)
+        req1 = self._forward_swap(sendbuf, recvbuf, self.rank-1, self.rank+1, mx, npx, 10)
 
         sendbuf = [self.left_send_halo, MPI.DOUBLE]
         recvbuf = [self.right_recv_halo, MPI.DOUBLE]
@@ -48,20 +53,20 @@ class DA:
         # perform swaps in y-direction:
         sendbuf = [self.top_send_halo, MPI.DOUBLE]
         recvbuf = [self.bottom_recv_halo, MPI.DOUBLE]
-        req3 = self._forward_swap(sendbuf, recvbuf, self.rank-npx, self.rank+npx, yloc, npy, 30)
+        req3 = self._forward_swap(sendbuf, recvbuf, self.rank-npx, self.rank+npx, my, npy, 30)
 
         sendbuf = [self.bottom_send_halo, MPI.DOUBLE]
         recvbuf = [self.top_recv_halo, MPI.DOUBLE]
-        req4 = self._backward_swap(sendbuf, recvbuf, self.rank+npx, self.rank-npx, yloc, npy, 40)
+        req4 = self._backward_swap(sendbuf, recvbuf, self.rank+npx, self.rank-npx, my, npy, 40)
 
         # perform swaps in z-direction:
         sendbuf = [self.back_send_halo, MPI.DOUBLE]
         recvbuf = [self.front_recv_halo, MPI.DOUBLE]
-        req5 = self._forward_swap(sendbuf, recvbuf, self.rank-npx*npy, self.rank+npx*npy, zloc, npz, 50)
+        req5 = self._forward_swap(sendbuf, recvbuf, self.rank-npx*npy, self.rank+npx*npy, mz, npz, 50)
 
         sendbuf = [self.front_send_halo, MPI.DOUBLE]
         recvbuf = [self.back_recv_halo, MPI.DOUBLE]
-        req6 = self._backward_swap(sendbuf, recvbuf, self.rank+npx*npy, self.rank-npx*npy, zloc, npz, 60)
+        req6 = self._backward_swap(sendbuf, recvbuf, self.rank+npx*npy, self.rank-npx*npy, mz, npz, 60)
 
         requests = [req for req in  [req1, req2, req3, req4, req5, req6] if req != None]
         MPI.Request.Waitall(requests, [MPI.Status()]*len(requests))
@@ -131,7 +136,7 @@ class DA:
         # Allocate space for the halos: two per face,
         # one for sending and one for receiving.
 
-        nz, ny, nx = self.local_dims
+        nz, ny, nx = self.nz, self.ny, self.nx
         sw = self.stencil_width
         # create two halo regions for each face, one holding
         # the halo values to send, and the other holding
@@ -161,7 +166,7 @@ class DA:
         # copy_dims: number of elements to copy in (z, y, x) directions
         # copy_offsets: offsets at the source in (z, y, x) directions
 
-        nz, ny, nx = self.local_dims
+        nz, ny, nx = self.nz, self.ny, self.nx
         d, h, w  = copy_dims
         z_offs, y_offs, x_offs = copy_offsets
 
@@ -176,7 +181,7 @@ class DA:
         # copy_dims: number of elements to copy in (z, y, x) directions
         # copy_offsets: offsets at the destination in (z, y, x) directions
 
-        nz, ny, nx = self.local_dims
+        nz, ny, nx = self.nz, self.ny, self.nx
         sw = self.stencil_width
         d, h, w = copy_dims
         z_offs, y_offs, x_offs = copy_offsets
@@ -186,14 +191,14 @@ class DA:
 
     def _copy_global_to_local(self, global_array, local_array, dtype=np.float64):
 
-        nz, ny, nx = self.local_dims
+        nz, ny, nx = self.nz, self.ny, self.nx
         sw = self.stencil_width
 
         local_array[sw:-sw, sw:-sw, sw:-sw] = global_array
 
     def _copy_local_to_global(self, local_array, global_array, dtype=np.float64):
 
-        nz, ny, nx = self.local_dims
+        nz, ny, nx = self.nz, self.ny, self.nx
         sw = self.stencil_width
 
         global_array[...] = local_array[sw:-sw, sw:-sw, sw:-sw]
@@ -204,8 +209,8 @@ class DA:
         # neighbour on a specified side
         # side can be 'left', 'right', 'top' or 'bottom'
 
-        npz, npy, npx = self.comm.Get_topo()[0]
-        mz, my, mx = self.comm.Get_topo()[2]
+        npz, npy, npx = self.npz, self.npy, self.npx
+        mz, my, mx = self.mz, self.my, self.mx
 
         if side == 'left' and mx > 0:
             return True
@@ -227,6 +232,28 @@ class DA:
 
         else:
             return False
+
+
+def DA_arange(da, x_range, y_range, z_range):
+    '''
+    '''
+    nz, ny, nx = da.nz, da.ny, da.nz
+    npz, npy, npx = da.npz, da.npy, da.npx
+    mz, my, mx = da.mz, da.my, da.mx
+    NZ, NY, NX = nz*npz, ny*npy, nx*npx 
+    dx = float(x_range[-1]-x_range[0])/(NX-1)
+    dy = float(y_range[-1]-y_range[0])/(NY-1)
+    dz = float(z_range[-1]-z_range[0])/(NZ-1)
+    x_start, y_start, z_start = (x_range[0] + mx*nx*dx,
+            y_range[0] + my*ny*dy,
+            z_range[0] + mz*nz*dz)
+    z, y, x = np.meshgrid(
+            np.linspace(z_start, z_start+(nz-1)*dz, nz),
+            np.linspace(y_start, y_start+(ny-1)*dy, ny),
+            np.linspace(x_start, x_start+(nx-1)*dx, nx),
+            indexing='ij')
+    return x, y, z
+
 
 def MPI_get_line(comm, direction):
     '''
