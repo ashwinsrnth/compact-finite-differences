@@ -9,7 +9,7 @@ from numpy.testing import *
 import pthomas
 import sharedcyclicreduction
 import kernels
-import mpiDA
+from mpi_util import *
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
