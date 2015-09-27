@@ -4,6 +4,19 @@ from mpi4py import MPI
 class DA:
 
     def __init__(self, comm, local_dims, proc_sizes, stencil_width):
+        """
+        DA: a class for handling structured grid information
+
+        Args:
+            comm (mpi4py.MPI.Intracomm): The communicator for all
+                processes in the group
+            local_dims (tuple): Dimensions (nz, ny, nx) of the
+                portion of the problem belonging to each process
+            proc_sizes (tuple): The number of processes (npz, npy, npx)
+                in each direction
+            stencil_width (int): The width of boundary information
+                that may be exchanged between processes
+        """
         comm = comm.Create_cart(proc_sizes)
         self.comm = comm
         self.local_dims = local_dims
@@ -20,14 +33,26 @@ class DA:
         self._create_halo_arrays()
     
     def create_global_vector(self):
+        """
+        Returns:
+            out (numpy.ndarray): an array sized (nz, ny, nx)
+        """
         return np.zeros([self.nz, self.ny, self.nx], dtype=np.float64)
 
     def create_local_vector(self):
+        """
+        Returns:
+            out (numpy.ndarray): an array sized (nz+2*sw, ny+2*sw, nx+2*sw)
+        """
         return np.zeros([self.nz+2*self.stencil_width,
             self.ny+2*self.stencil_width,
             self.nx+2*self.stencil_width], dtype=np.float64)
 
     def global_to_local(self, global_array, local_array):
+        """
+        Transfer from global portion of an array on each process
+        to the local portion (involves communication of boundary info).
+        """
         # Update the local array (which includes ghost points)
         # from the global array (which does not)
 
@@ -99,7 +124,10 @@ class DA:
             self._copy_halo_to_array(self.back_recv_halo, local_array, [sw, ny, nx], [2*sw+nz-1, sw, sw])
 
     def local_to_global(self, local_array, global_array):
-
+        """
+        Transfer from the local portion of an array on each process
+        to the global portion (involves no communication)
+        """
         # Update a global array (no ghost values)
         # from a local array (which contains ghost values).
         # This does *not* involve any communication.
@@ -108,7 +136,18 @@ class DA:
 
 
     def _forward_swap(self, sendbuf, recvbuf, src, dest, loc, dimprocs, tag):
+        """
+        Perform a swap in the +x, +y or +z direction
 
+        Args:
+            sendbuf (tuple): Sending buffer (data, data_size, data_type)
+            recvbuf (tuple): Receiving buffer
+            src (int): Sending rank
+            dest (int): Receiving rank
+            loc (int): Sending position in direction (0 to npx/npy/npz-1)
+            dimprocs (int): Number of processes in direction (npx/npy/npz)
+            tag (int): 
+        """
         # Perform swap in the +x, +y or +z direction
         req = None
         if loc > 0 and loc < dimprocs-1:
@@ -166,28 +205,28 @@ class DA:
         self.front_send_halo = self.back_recv_halo.copy()
 
     def _copy_array_to_halo(self, array, halo, copy_dims, copy_offsets, dtype=np.float64):
-
-        # copy from 3-d array to 2-d halo
-        #
-        # Paramters:
-        # array, halo:  gpuarrays involved in the copy.
-        # copy_dims: number of elements to copy in (z, y, x) directions
-        # copy_offsets: offsets at the source in (z, y, x) directions
-
+        """
+        Copy from 3-d array to 2-d halo
+        
+        Args:
+            array, halo (np.ndarray): arrays involved in the copy.
+            copy_dims (tuple): number of elements to copy in (z, y, x) directions
+            copy_offsets (tuple): offsets at the source in (z, y, x) directions
+        """
         nz, ny, nx = self.nz, self.ny, self.nx
         d, h, w  = copy_dims
         z_offs, y_offs, x_offs = copy_offsets
         halo[...] = array[z_offs:z_offs+d, y_offs:y_offs+h, x_offs:x_offs+w]
 
     def _copy_halo_to_array(self, halo, array, copy_dims, copy_offsets, dtype=np.float64):
-
-        # copy from 2-d halo to 3-d array
-        #
-        # Parameters:
-        # halo, array:  gpuarrays involved in the copy
-        # copy_dims: number of elements to copy in (z, y, x) directions
-        # copy_offsets: offsets at the destination in (z, y, x) directions
-
+        """
+        Copy from 2-d halo to 3-d array
+        
+        Args:
+        halo, array (np.ndarray):  gpuarrays involved in the copy
+        copy_dims (tuple): number of elements to copy in (z, y, x) directions
+        copy_offsets (tuple): offsets at the destination in (z, y, x) directions
+        """
         nz, ny, nx = self.nz, self.ny, self.nx
         sw = self.stencil_width
         d, h, w = copy_dims
@@ -210,11 +249,10 @@ class DA:
         global_array[...] = local_array[sw:-sw, sw:-sw, sw:-sw]
 
     def has_neighbour(self, side):
-
-        # Check that the processor has a
-        # neighbour on a specified side
-        # side can be 'left', 'right', 'top' or 'bottom'
-
+        """
+        Check that the processor has a
+        neighbour on a specified side
+        """
         npz, npy, npx = self.npz, self.npy, self.npx
         mz, my, mx = self.mz, self.my, self.mx
 
@@ -268,6 +306,18 @@ class DA:
 
 def DA_arange(da, x_range, y_range, z_range):
     '''
+    Return x, y and z arrays
+    representing coordinate values
+    for a grid with specified ranges
+    
+    Args:
+        x_range (tuple): (xmin, xmax)
+        y_range (tuple): (ymin, ymax)
+        z_range (tuple): (zmin, zmax)
+
+    Returns:
+        x, y, z (np.ndarrays): coordinate arrays,
+            all sized (nz, ny, nx)
     '''
     nz, ny, nx = da.nz, da.ny, da.nx
     npz, npy, npx = da.npz, da.npy, da.npx
@@ -285,20 +335,6 @@ def DA_arange(da, x_range, y_range, z_range):
             np.linspace(x_start, x_start+(nx-1)*dx, nx),
             indexing='ij')
     return x, y, z
-
-def face_type(line_comm, shape):
-    '''
-    '''
-    nz, ny, nx = shape
-    npx = line_comm.Get_size()
-    displacements = np.arange(0, 2*npx, 2)
-    line_rank = line_comm.Get_rank()
-    start_z, start_y, start_x = 0, 0, displacements[line_rank]
-    subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, 2*npx],
-                        [nz, ny, 2], [start_z, start_y, start_x])
-    subarray = subarray_aux.Create_resized(0, 8)
-    subarray.Commit()
-    return subarray
 
 def scatter_3D(comm, x_global, x_local):
     assert (isinstance(comm, MPI.Cartcomm))
