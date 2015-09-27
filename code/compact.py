@@ -40,6 +40,10 @@ class CompactFiniteDifferenceSolver:
         alpha, beta = self.solve_reduced_system(line_da, x_UH, x_LH, x_R)
         dfdx = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
         return dfdx 
+    
+    def dfdy(self, f, dy):
+        dfdy = np.zeros_like(f, dtype=np.float64)
+        return dfdy
 
     def compute_RHS_dfdx(self, line_da, f_local, dx):
         f_d = cl_array.to_device(self.queue, self.f_local)
