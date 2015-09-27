@@ -6,7 +6,7 @@ phony:
 	@echo clean: Clean up the directory 
 	@echo
 test:
-	mpiexec -n 8 python test_compact.py
-
+	mpiexec ${MPIEXECFLAGS} -n 8 python test_compact.py
+	mpiexec ${MPIEXECFLAGS} -n 1 nosetests test_kernels.py
 clean:
 	rm -f *.png *.pyc
