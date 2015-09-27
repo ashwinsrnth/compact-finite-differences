@@ -150,19 +150,32 @@ class DA:
         self.comm.Scatter(sendbuf, recvbuf, root=root)
 
     def get_line_DA(self, direction):
+        """
+        Return a one dimensional DA
+        composed of all processes in the specified direction.
+        For example, for direction=1,
+        the DA has proc_size ``(1, 1, npy)``
+        and local_dims ``(nz, nx, ny)``.
+
+        :parameter direction: Indicates x- (0), y- (1) or z (2)- direction.
+        :type direction: int
+        """
         ranks_matrix = np.arange(self.npz*self.npy*self.npx).reshape([self.npz, self.npy, self.npx])
         global_group = self.comm.Get_group()
         if direction == 0:
             line_group = global_group.Incl(ranks_matrix[self.mz, self.my, :])
             line_proc_sizes = [1, 1, self.npx]
+            line_local_dims = [self.nz, self.ny, self.nx]
         elif direction == 1:
             line_group = global_group.Incl(ranks_matrix[self.mz, :, self.mx])
-            line_proc_sizes = [1, self.npy, 1]
+            line_proc_sizes = [1, 1, self.npy]
+            line_local_dims = [self.nz, self.nx, self.ny]
         else:
             line_group = global_group.Incl(ranks_matrix[:, self.my, self.mx])
-            line_proc_sizes = [self.npz, 1, 1]
+            line_proc_sizes = [1, 1, self.npz]
+            line_local_dims = [self.ny, self.nx, self.nz]
         line_comm = self.comm.Create(line_group)
-        return self.__class__(line_comm, self.local_dims, line_proc_sizes, self.stencil_width)
+        return self.__class__(line_comm, line_local_dims, line_proc_sizes, self.stencil_width)
 
     def _forward_swap(self, sendbuf, recvbuf, src, dest, loc, dimprocs, tag):
         """
@@ -339,16 +352,16 @@ def DA_arange(da, x_range, y_range, z_range):
             indexing='ij')
     return x, y, z
 
-def scatter_3D(comm, x_global, x_local):
-    assert (isinstance(comm, MPI.Cartcomm))
+def DA_scatter_blocks(da, x_global, x_local):
 
-    mz, my, mx = comm.Get_topo()[2]
-    npz, npy, npx = comm.Get_topo()[0]
-    nz, ny, nx = x_local.shape
+    mz, my, mx = da.mz, da.my, da.mx 
+    npz, npy, npx = da.npz, da.npy, da.npx
+    nz, ny, nx = da.nz, da.ny, da.nx
+    assert((nz, ny, nx) == x_local.shape)
     NZ, NY, NX = npz*nz, npy*ny, npx*nx
-    size = comm.Get_size()
-    rank = comm.Get_rank()
-    
+    size = da.size
+    rank = da.rank
+
     start_z, start_y, start_x = mz*nz, my*ny, mx*nx
     subarray_aux = MPI.DOUBLE.Create_subarray([NZ, NY, NX],
                         [nz, ny, nx], [start_z, start_y, start_x])
@@ -359,23 +372,23 @@ def scatter_3D(comm, x_global, x_local):
     sendbuf = [start_index, MPI.INT]
     displs = np.zeros(size, dtype=np.int)
     recvbuf = [displs, MPI.INT]
-    comm.Gather(sendbuf, recvbuf, root=0)
-    comm.Barrier()
+    da.comm.Gather(sendbuf, recvbuf, root=0)
+    da.comm.Barrier()
 
-    comm.Scatterv([x_global, np.ones(size, dtype=np.int), displs, subarray],
+    da.comm.Scatterv([x_global, np.ones(size, dtype=np.int), displs, subarray],
         [x_local, MPI.DOUBLE], root=0)
 
     subarray.Free()
 
-def gather_3D(comm, x_local, x_global):
-    assert (isinstance(comm, MPI.Cartcomm))
+def DA_gather_blocks(da, x_local, x_global):
 
-    mz, my, mx = comm.Get_topo()[2]
-    npz, npy, npx = comm.Get_topo()[0]
-    nz, ny, nx = x_local.shape
+    mz, my, mx = da.mz, da.my, da.mx 
+    npz, npy, npx = da.npz, da.npy, da.npx
+    nz, ny, nx = da.nz, da.ny, da.nx
+    assert((nz, ny, nx) == x_local.shape)
     NZ, NY, NX = npz*nz, npy*ny, npx*nx
-    size = comm.Get_size()
-    rank = comm.Get_rank()
+    size = da.size
+    rank = da.rank 
 
     start_z, start_y, start_x = mz*nz, my*ny, mx*nx
     subarray_aux = MPI.DOUBLE.Create_subarray([NZ, NY, NX],
@@ -387,10 +400,10 @@ def gather_3D(comm, x_local, x_global):
     sendbuf = [start_index, MPI.INT]
     displs = np.zeros(size, dtype=np.int)
     recvbuf = [displs, MPI.INT]
-    comm.Gather(sendbuf, recvbuf, root=0)
-    comm.Barrier()
+    da.comm.Gather(sendbuf, recvbuf, root=0)
+    da.comm.Barrier()
 
-    comm.Gatherv([x_local, MPI.DOUBLE],
+    da.comm.Gatherv([x_local, MPI.DOUBLE],
         [x_global, np.ones(size, dtype=np.int), displs, subarray], root=0)
 
     subarray.Free()

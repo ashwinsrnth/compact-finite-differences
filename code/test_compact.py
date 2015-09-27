@@ -49,8 +49,20 @@ def test_dfdy_sine_regular():
     dfdy = cfd.dfdy(f, dy)
     assert_almost_equal(dfdy_true, dfdy, decimal=2)
 
+def test_dfdy_xyz():
+    comm = MPI.COMM_WORLD 
+    da = DA(comm, (8, 32, 16), (2, 2, 2), 1)
+    x, y, z = DA_arange(da, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
+    f = y*np.cos(x*y) + z*y
+    dfdy_true = -(x*y)*np.sin(x*y) + np.cos(x*y) + z
+    dy = y[0, 1, 0] - y[0, 0, 0]
+    cfd = CompactFiniteDifferenceSolver(da)
+    dfdy = cfd.dfdy(f, dy)
+    assert_almost_equal(dfdy_true, dfdy, decimal=1)
+
 if __name__ == "__main__":
     test_dfdx_sine_regular()
     test_dfdx_sine_irregular()
     test_dfdx_xyz()
     test_dfdy_sine_regular()
+    test_dfdy_xyz()

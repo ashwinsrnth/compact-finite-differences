@@ -22,7 +22,6 @@ class CompactFiniteDifferenceSolver:
         self.da = da
         self.use_gpu = use_gpu
         self.init_cl()
-        self.init_bufs()
     
     def dfdx(self, f, dx):
         '''
@@ -32,9 +31,11 @@ class CompactFiniteDifferenceSolver:
         :type dx: float
         '''
         line_da = self.da.get_line_DA(0)
+        f_local = line_da.create_local_vector()
+        
         self.setup_primary_solver(line_da)
-        self.da.global_to_local(f, self.f_local)
-        rhs = self.compute_RHS_dfdx(line_da, self.f_local, dx)
+        line_da.global_to_local(f, f_local)
+        rhs = self.compute_RHS_dfdx(line_da, f_local, dx)
         x_UH, x_LH = self.solve_secondary_systems(line_da)
         x_R = self.solve_primary_systems(rhs)
         alpha, beta = self.solve_reduced_system(line_da, x_UH, x_LH, x_R)
@@ -42,11 +43,22 @@ class CompactFiniteDifferenceSolver:
         return dfdx 
     
     def dfdy(self, f, dy):
-        dfdy = np.zeros_like(f, dtype=np.float64)
-        return dfdy
+        line_da = self.da.get_line_DA(1)
+        f_T = f.transpose(0, 2, 1).copy()
+        f_local = line_da.create_local_vector()
+        
+        self.setup_primary_solver(line_da)
+        line_da.global_to_local(f_T, f_local)
+        rhs = self.compute_RHS_dfdx(line_da, f_local, dy)
+        x_UH, x_LH = self.solve_secondary_systems(line_da)
+        x_R = self.solve_primary_systems(rhs)
+        alpha, beta = self.solve_reduced_system(line_da, x_UH, x_LH, x_R)
+        dfdy = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
+        dfdy = dfdy.transpose(0, 2, 1).copy()
+        return dfdy 
 
     def compute_RHS_dfdx(self, line_da, f_local, dx):
-        f_d = cl_array.to_device(self.queue, self.f_local)
+        f_d = cl_array.to_device(self.queue, f_local)
         x_d = cl_array.Array(self.queue, (line_da.nz, line_da.ny, line_da.nx),
                 dtype=np.float64)
         self.compute_RHS_kernel(self.queue, (line_da.nx, line_da.ny, line_da.nz),
@@ -176,8 +188,6 @@ class CompactFiniteDifferenceSolver:
         self.compute_RHS_kernel, = kernels.get_funcs(self.ctx, 'kernels.cl',
                 'computeRHSdfdx')
                  
-    def init_bufs(self):
-        self.f_local = self.da.create_local_vector()
 
 def scipy_solve_banded(a, b, c, rhs):
     '''
