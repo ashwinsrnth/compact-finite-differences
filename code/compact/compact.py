@@ -30,7 +30,6 @@ class CompactFiniteDifferenceSolver:
     def __init__(self, da, use_gpu = False):
         self.da = da
         self.use_gpu = use_gpu
-    
         self.init_cl()
         self.init_bufs()
     
@@ -47,9 +46,9 @@ class CompactFiniteDifferenceSolver:
 
     def compute_RHS_dfdx(self, line_da, f_local, dx):
         f_d = cl_array.to_device(self.queue, self.f_local)
-        x_d = cl_array.Array(self.queue, [line_da.nz, line_da.ny, line_da.nx],
+        x_d = cl_array.Array(self.queue, (line_da.nz, line_da.ny, line_da.nx),
                 dtype=np.float64)
-        self.compute_RHS_kernel(self.queue, [line_da.nz, line_da.ny, line_da.nx],
+        self.compute_RHS_kernel(self.queue, (line_da.nx, line_da.ny, line_da.nz),
                 None, f_d.data, x_d.data, np.float64(dx),
                     np.int32(line_da.rank), np.int32(line_da.size))
         rhs = x_d.get()
@@ -119,7 +118,7 @@ class CompactFiniteDifferenceSolver:
         else:
             params = None
         
-        params_local = np.zeros([nz, nx, 2], dtype=np.float64)
+        params_local = np.zeros([nz, ny, 2], dtype=np.float64)
         line_da.scatterv([params, lengths, displacements, subarray],
                 [params_local, MPI.DOUBLE])
         alpha = params_local[:, :, 0].copy()
@@ -180,15 +179,16 @@ class CompactFiniteDifferenceSolver:
 
 if __name__ == "__main__":
     comm = MPI.COMM_WORLD 
-    da = DA(comm, (8, 8, 8), (2, 2, 2), 1)
+    da = DA(comm, (32, 8, 16), (2, 2, 2), 1)
     x, y, z = DA_arange(da, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
-    f = np.sin(x)
+    f = x*np.sin(y) + z*np.cos(y*x)
+    dfdx_true = np.sin(y) - z*y*np.sin(y*x)
     dx = x[0, 0, 1] - x[0, 0, 0]
     cfd = CompactFiniteDifferenceSolver(da)
     dfdx = cfd.dfdx(f, dx)
     
     import matplotlib.pyplot as plt
     if da.rank == 0:
-        plt.plot(np.cos(x[0, 0, :]))
-        plt.plot(dfdx[0, 0, :], 'o')
+        plt.plot(dfdx_true[3, 3, :])
+        plt.plot(dfdx[3, 3, :], '-o')
         plt.savefig('temp.png')
