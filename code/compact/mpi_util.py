@@ -18,13 +18,21 @@ class DA:
 
         assert(self.size == reduce(lambda a,b: a*b, proc_sizes))
         self._create_halo_arrays()
+    
+    def create_global_vector(self):
+        return np.zeros([self.nz, self.ny, self.nx], dtype=np.float64)
+
+    def create_local_vector(self):
+        return np.zeros([self.nz+2*self.stencil_width,
+            self.ny+2*self.stencil_width,
+            self.nx+2*self.stencil_width], dtype=np.float64)
 
     def global_to_local(self, global_array, local_array):
         # Update the local array (which includes ghost points)
         # from the global array (which does not)
 
         npz, npy, npx = self.npz, self.npy, self.npx
-        nz, ny, nx = self.nz, self.ny, self.nz
+        nz, ny, nx = self.nz, self.ny, self.nx
         mz, my, mx = self.mz, self.my, self.mx
         sw = self.stencil_width
 
@@ -48,7 +56,7 @@ class DA:
 
         sendbuf = [self.left_send_halo, MPI.DOUBLE]
         recvbuf = [self.right_recv_halo, MPI.DOUBLE]
-        req2 = self._backward_swap(sendbuf, recvbuf, self.rank+1, self.rank-1, xloc, npx, 20)
+        req2 = self._backward_swap(sendbuf, recvbuf, self.rank+1, self.rank-1, mx, npx, 20)
 
         # perform swaps in y-direction:
         sendbuf = [self.top_send_halo, MPI.DOUBLE]
@@ -169,7 +177,6 @@ class DA:
         nz, ny, nx = self.nz, self.ny, self.nx
         d, h, w  = copy_dims
         z_offs, y_offs, x_offs = copy_offsets
-
         halo[...] = array[z_offs:z_offs+d, y_offs:y_offs+h, x_offs:x_offs+w]
 
     def _copy_halo_to_array(self, halo, array, copy_dims, copy_offsets, dtype=np.float64):
@@ -187,7 +194,6 @@ class DA:
         z_offs, y_offs, x_offs = copy_offsets
 
         array[z_offs:z_offs+d, y_offs:y_offs+h, x_offs:x_offs+w] = halo
-
 
     def _copy_global_to_local(self, global_array, local_array, dtype=np.float64):
 
@@ -232,12 +238,38 @@ class DA:
 
         else:
             return False
+    
+    def gather(self, sendbuf, recvbuf, root=0):
+        self.comm.Gather(sendbuf, recvbuf, root=root)
 
+    def gatherv(self, sendbuf, recvbuf, root=0):
+        self.comm.Gatherv(sendbuf, recvbuf, root=root)
+
+    def scatterv(self, sendbuf, recvbuf, root=0):
+        self.comm.Scatterv(sendbuf, recvbuf, root=root)
+   
+    def scatter(self, sendbuf, recvbuf, root=0):
+        self.comm.Scatter(sendbuf, recvbuf, root=root)
+
+    def get_line_DA(self, direction):
+        ranks_matrix = np.arange(self.npz*self.npy*self.npx).reshape([self.npz, self.npy, self.npx])
+        global_group = self.comm.Get_group()
+        if direction == 0:
+            line_group = global_group.Incl(ranks_matrix[self.mz, self.my, :])
+            line_proc_sizes = [1, 1, self.npx]
+        elif direction == 1:
+            line_group = global_group.Incl(ranks_matrix[self.mz, :, self.mx])
+            line_proc_sizes = [1, self.npy, 1]
+        else:
+            line_group = global_group.Incl(ranks_matrix[:, self.my, self.mx])
+            line_proc_sizes = [self.npz, 1, 1]
+        line_comm = self.comm.Create(line_group)
+        return self.__class__(line_comm, self.local_dims, line_proc_sizes, self.stencil_width)
 
 def DA_arange(da, x_range, y_range, z_range):
     '''
     '''
-    nz, ny, nx = da.nz, da.ny, da.nz
+    nz, ny, nx = da.nz, da.ny, da.nx
     npz, npy, npx = da.npz, da.npy, da.npx
     mz, my, mx = da.mz, da.my, da.mx
     NZ, NY, NX = nz*npz, ny*npy, nx*npx 
@@ -253,32 +285,6 @@ def DA_arange(da, x_range, y_range, z_range):
             np.linspace(x_start, x_start+(nx-1)*dx, nx),
             indexing='ij')
     return x, y, z
-
-
-def MPI_get_line(comm, direction):
-    '''
-    Get intracommunicator composed
-    of only processes in the "line"
-    along the given direction.
-
-    direction:
-
-    0: x
-    1: y
-    2: z
-    '''
-    npz, npy, npx = comm.Get_topo()[0]
-    mz, my, mx = comm.Get_topo()[2]
-    ranks_matrix = np.arange(npz*npy*npx).reshape([npz, npy, npx])
-    global_group = comm.Get_group()
-    if direction == 0:
-        line_group = global_group.Incl(ranks_matrix[mz, my, :])
-    elif direction == 1:
-        line_group = global_group.Incl(ranks_matrix[mz, :, mx])
-    else:
-        line_group = global_group.Incl(ranks_matrix[:, my, mx])
-    line_comm = comm.Create(line_group)
-    return line_comm
 
 def face_type(line_comm, shape):
     '''

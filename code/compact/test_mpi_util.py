@@ -16,5 +16,25 @@ def test_DA_arange():
             for j in range(5):
                 assert_equal(x[i, j, :], np.arange(6, 11))
 
+def test_DA_get_line_DA():
+    da = DA(comm, [5, 5, 5], [2, 2, 2], 1)
+    line_da = da.get_line_DA(0)
+    assert(line_da.npx == 2)
+    assert(line_da.npy == 1)
+    assert(line_da.npz == 1)
+
+def test_DA_gather():
+    da = DA(comm, [5, 5, 5], [2, 2, 2], 1)
+    a = da.create_global_vector()
+    a[...] = rank
+    a_root = np.zeros(8, dtype=np.float64)
+    da.gatherv([a, 1, MPI.DOUBLE], [a_root, np.ones(8), range(8), MPI.DOUBLE])
+    if rank == 0:
+        assert_equal(a_root, np.arange(8))
+    else:
+        assert_equal(a_root, 0)
+
 if __name__ == "__main__":
     test_DA_arange()
+    test_DA_get_line_DA()
+    test_DA_gather()
