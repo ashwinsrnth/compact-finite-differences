@@ -1,4 +1,4 @@
-__kernel void computeRHSdfdx(__global double *f_local_d,
+__kernel void computeRHS(__global double *f_local_d,
                         __global double *rhs_d,
                         double dx,
                         int mx,
@@ -91,7 +91,7 @@ __kernel void computeRHSdfdy(__global double *f_local_d,
 }
 
 
-__kernel void sumSolutionsdfdx3D(__global double* x_R_d,
+__kernel void sumSolutions(__global double* x_R_d,
                             __global double* x_UH_d,
                             __global double* x_LH_d,
                             __global double* alpha,

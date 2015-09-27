@@ -32,10 +32,9 @@ class CompactFiniteDifferenceSolver:
         '''
         line_da = self.da.get_line_DA(0)
         f_local = line_da.create_local_vector()
-        
         self.setup_primary_solver(line_da)
         line_da.global_to_local(f, f_local)
-        rhs = self.compute_RHS_dfdx(line_da, f_local, dx)
+        rhs = self.compute_RHS(line_da, f_local, dx)
         x_UH, x_LH = self.solve_secondary_systems(line_da)
         x_R = self.solve_primary_systems(rhs)
         alpha, beta = self.solve_reduced_system(line_da, x_UH, x_LH, x_R)
@@ -46,10 +45,9 @@ class CompactFiniteDifferenceSolver:
         line_da = self.da.get_line_DA(1)
         f_T = f.transpose(0, 2, 1).copy()
         f_local = line_da.create_local_vector()
-        
         self.setup_primary_solver(line_da)
         line_da.global_to_local(f_T, f_local)
-        rhs = self.compute_RHS_dfdx(line_da, f_local, dy)
+        rhs = self.compute_RHS(line_da, f_local, dy)
         x_UH, x_LH = self.solve_secondary_systems(line_da)
         x_R = self.solve_primary_systems(rhs)
         alpha, beta = self.solve_reduced_system(line_da, x_UH, x_LH, x_R)
@@ -57,7 +55,21 @@ class CompactFiniteDifferenceSolver:
         dfdy = dfdy.transpose(0, 2, 1).copy()
         return dfdy 
 
-    def compute_RHS_dfdx(self, line_da, f_local, dx):
+    def dfdz(self, f, dz):
+        line_da = self.da.get_line_DA(2)
+        f_T = f.transpose(1, 2, 0).copy()
+        f_local = line_da.create_local_vector()
+        self.setup_primary_solver(line_da)
+        line_da.global_to_local(f_T, f_local)
+        rhs = self.compute_RHS(line_da, f_local, dz)
+        x_UH, x_LH = self.solve_secondary_systems(line_da)
+        x_R = self.solve_primary_systems(rhs)
+        alpha, beta = self.solve_reduced_system(line_da, x_UH, x_LH, x_R)
+        dfdz = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
+        dfdz = dfdz.transpose(2, 0, 1).copy()
+        return dfdz
+
+    def compute_RHS(self, line_da, f_local, dx):
         f_d = cl_array.to_device(self.queue, f_local)
         x_d = cl_array.Array(self.queue, (line_da.nz, line_da.ny, line_da.nx),
                 dtype=np.float64)
@@ -186,7 +198,7 @@ class CompactFiniteDifferenceSolver:
         self.queue = cl.CommandQueue(self.ctx)
         
         self.compute_RHS_kernel, = kernels.get_funcs(self.ctx, 'kernels.cl',
-                'computeRHSdfdx')
+                'computeRHS')
                  
 
 def scipy_solve_banded(a, b, c, rhs):

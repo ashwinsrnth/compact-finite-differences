@@ -15,6 +15,8 @@ def test_dfdx_sine_regular():
     cfd = CompactFiniteDifferenceSolver(da)
     dfdx = cfd.dfdx(f, dx)
     assert_almost_equal(dfdx_true, dfdx, decimal=2)
+    if comm.Get_rank() == 0:
+        print 'pass'
 
 def test_dfdx_sine_irregular():
     comm = MPI.COMM_WORLD 
@@ -26,6 +28,8 @@ def test_dfdx_sine_irregular():
     cfd = CompactFiniteDifferenceSolver(da)
     dfdx = cfd.dfdx(f, dx)
     assert_almost_equal(dfdx_true, dfdx, decimal=2)
+    if comm.Get_rank() == 0:
+        print 'pass'
 
 def test_dfdx_xyz():
     comm = MPI.COMM_WORLD 
@@ -37,6 +41,8 @@ def test_dfdx_xyz():
     cfd = CompactFiniteDifferenceSolver(da)
     dfdx = cfd.dfdx(f, dx)
     assert_almost_equal(dfdx_true, dfdx, decimal=2)
+    if comm.Get_rank() == 0:
+        print 'pass'
 
 def test_dfdy_sine_regular():
     comm = MPI.COMM_WORLD 
@@ -48,17 +54,34 @@ def test_dfdy_sine_regular():
     cfd = CompactFiniteDifferenceSolver(da)
     dfdy = cfd.dfdy(f, dy)
     assert_almost_equal(dfdy_true, dfdy, decimal=2)
+    if comm.Get_rank() == 0:
+        print 'pass'
 
 def test_dfdy_xyz():
     comm = MPI.COMM_WORLD 
     da = DA(comm, (8, 32, 16), (2, 2, 2), 1)
     x, y, z = DA_arange(da, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
-    f = y*np.cos(x*y) + z*y
-    dfdy_true = -(x*y)*np.sin(x*y) + np.cos(x*y) + z
+    f = x*y*z 
+    dfdy_true = x*z 
     dy = y[0, 1, 0] - y[0, 0, 0]
     cfd = CompactFiniteDifferenceSolver(da)
     dfdy = cfd.dfdy(f, dy)
-    assert_almost_equal(dfdy_true, dfdy, decimal=1)
+    assert_almost_equal(dfdy_true, dfdy, decimal=2)
+    if comm.Get_rank() == 0:
+        print 'pass'
+ 
+def test_dfdz_xyz():
+    comm = MPI.COMM_WORLD 
+    da = DA(comm, (8, 32, 16), (2, 2, 2), 1)
+    x, y, z = DA_arange(da, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
+    f = x*y*z**2
+    dfdz_true = 2*z*x*y 
+    dz = z[1, 0, 0] - z[0, 0, 0]
+    cfd = CompactFiniteDifferenceSolver(da)
+    dfdz = cfd.dfdz(f, dz)
+    assert_almost_equal(dfdz_true, dfdz, decimal=2)
+    if comm.Get_rank() == 0:
+        print 'pass'
 
 if __name__ == "__main__":
     test_dfdx_sine_regular()
@@ -66,3 +89,4 @@ if __name__ == "__main__":
     test_dfdx_xyz()
     test_dfdy_sine_regular()
     test_dfdy_xyz()
+    test_dfdz_xyz()
