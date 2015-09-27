@@ -28,12 +28,24 @@ def scipy_solve_banded(a, b, c, rhs):
 class CompactFiniteDifferenceSolver:
 
     def __init__(self, da, use_gpu = False):
+        '''
+        :param da: DA object carrying the grid information
+        :type da: mpi_util.DA
+        :param use_gpu: set True if using GPU
+        :type use_gpu: bool
+        '''
         self.da = da
         self.use_gpu = use_gpu
         self.init_cl()
         self.init_bufs()
     
     def dfdx(self, f, dx):
+        '''
+        :param f: The 3-d array with function values
+        :type f: numpy.ndarray
+        :param dx: Spacing in x-direction
+        :type dx: float
+        '''
         line_da = self.da.get_line_DA(0)
         self.setup_primary_solver(line_da)
         self.da.global_to_local(f, self.f_local)
@@ -165,7 +177,8 @@ class CompactFiniteDifferenceSolver:
     def init_cl(self):
         self.platform = cl.get_platforms()[0]
         if self.use_gpu:
-            self.device = self.platform.get_devices()[self.da.rank%2]
+            ngpus = len(self.platform.get_devices())
+            self.device = self.platform.get_devices()[self.da.rank%ngpus]
         else:
             self.device = self.platform.get_devices()[0]
         self.ctx = cl.Context([self.device])

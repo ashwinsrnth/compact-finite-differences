@@ -7,15 +7,18 @@ class DA:
         """
         DA: a class for handling structured grid information
 
-        Args:
-            comm (mpi4py.MPI.Intracomm): The communicator for all
+        :param comm: The communicator for all
                 processes in the group
-            local_dims (tuple): Dimensions (nz, ny, nx) of the
+        :type comm: mpi4py communicator
+        :param local_dims: Dimensions (nz, ny, nx) of the
                 portion of the problem belonging to each process
-            proc_sizes (tuple): The number of processes (npz, npy, npx)
+        :type local_dims: tuple 
+        :param proc_sizes: The number of processes (npz, npy, npx)
                 in each direction
-            stencil_width (int): The width of boundary information
+        :type proc_sizes: tuple
+        :param stencil_width: The width of boundary information
                 that may be exchanged between processes
+        :type stencil_width: int
         """
         comm = comm.Create_cart(proc_sizes)
         self.comm = comm
@@ -134,6 +137,32 @@ class DA:
 
         self._copy_local_to_global(local_array, global_array)
 
+    def gather(self, sendbuf, recvbuf, root=0):
+        self.comm.Gather(sendbuf, recvbuf, root=root)
+
+    def gatherv(self, sendbuf, recvbuf, root=0):
+        self.comm.Gatherv(sendbuf, recvbuf, root=root)
+
+    def scatterv(self, sendbuf, recvbuf, root=0):
+        self.comm.Scatterv(sendbuf, recvbuf, root=root)
+   
+    def scatter(self, sendbuf, recvbuf, root=0):
+        self.comm.Scatter(sendbuf, recvbuf, root=root)
+
+    def get_line_DA(self, direction):
+        ranks_matrix = np.arange(self.npz*self.npy*self.npx).reshape([self.npz, self.npy, self.npx])
+        global_group = self.comm.Get_group()
+        if direction == 0:
+            line_group = global_group.Incl(ranks_matrix[self.mz, self.my, :])
+            line_proc_sizes = [1, 1, self.npx]
+        elif direction == 1:
+            line_group = global_group.Incl(ranks_matrix[self.mz, :, self.mx])
+            line_proc_sizes = [1, self.npy, 1]
+        else:
+            line_group = global_group.Incl(ranks_matrix[:, self.my, self.mx])
+            line_proc_sizes = [self.npz, 1, 1]
+        line_comm = self.comm.Create(line_group)
+        return self.__class__(line_comm, self.local_dims, line_proc_sizes, self.stencil_width)
 
     def _forward_swap(self, sendbuf, recvbuf, src, dest, loc, dimprocs, tag):
         """
@@ -277,32 +306,6 @@ class DA:
         else:
             return False
     
-    def gather(self, sendbuf, recvbuf, root=0):
-        self.comm.Gather(sendbuf, recvbuf, root=root)
-
-    def gatherv(self, sendbuf, recvbuf, root=0):
-        self.comm.Gatherv(sendbuf, recvbuf, root=root)
-
-    def scatterv(self, sendbuf, recvbuf, root=0):
-        self.comm.Scatterv(sendbuf, recvbuf, root=root)
-   
-    def scatter(self, sendbuf, recvbuf, root=0):
-        self.comm.Scatter(sendbuf, recvbuf, root=root)
-
-    def get_line_DA(self, direction):
-        ranks_matrix = np.arange(self.npz*self.npy*self.npx).reshape([self.npz, self.npy, self.npx])
-        global_group = self.comm.Get_group()
-        if direction == 0:
-            line_group = global_group.Incl(ranks_matrix[self.mz, self.my, :])
-            line_proc_sizes = [1, 1, self.npx]
-        elif direction == 1:
-            line_group = global_group.Incl(ranks_matrix[self.mz, :, self.mx])
-            line_proc_sizes = [1, self.npy, 1]
-        else:
-            line_group = global_group.Incl(ranks_matrix[:, self.my, self.mx])
-            line_proc_sizes = [self.npz, 1, 1]
-        line_comm = self.comm.Create(line_group)
-        return self.__class__(line_comm, self.local_dims, line_proc_sizes, self.stencil_width)
 
 def DA_arange(da, x_range, y_range, z_range):
     '''
