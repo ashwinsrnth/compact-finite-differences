@@ -34,7 +34,7 @@ class CompactFiniteDifferenceSolver:
         self.init_bufs()
     
     def dfdx(self, f, dx):
-        line_da = da.get_line_DA(0)
+        line_da = self.da.get_line_DA(0)
         self.setup_primary_solver(line_da)
         self.da.global_to_local(f, self.f_local)
         rhs = self.compute_RHS_dfdx(line_da, self.f_local, dx)
@@ -177,18 +177,3 @@ class CompactFiniteDifferenceSolver:
     def init_bufs(self):
         self.f_local = self.da.create_local_vector()
 
-if __name__ == "__main__":
-    comm = MPI.COMM_WORLD 
-    da = DA(comm, (32, 8, 16), (2, 2, 2), 1)
-    x, y, z = DA_arange(da, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
-    f = x*np.sin(y) + z*np.cos(y*x)
-    dfdx_true = np.sin(y) - z*y*np.sin(y*x)
-    dx = x[0, 0, 1] - x[0, 0, 0]
-    cfd = CompactFiniteDifferenceSolver(da)
-    dfdx = cfd.dfdx(f, dx)
-    
-    import matplotlib.pyplot as plt
-    if da.rank == 0:
-        plt.plot(dfdx_true[3, 3, :])
-        plt.plot(dfdx[3, 3, :], '-o')
-        plt.savefig('temp.png')
