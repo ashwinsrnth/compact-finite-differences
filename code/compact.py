@@ -22,7 +22,8 @@ class CompactFiniteDifferenceSolver:
         self.da = da
         self.use_gpu = use_gpu
         self.init_cl()
-    
+        self.init_solvers()
+
     def dfdx(self, f, dx):
         '''
         :param f: The 3-d array with function values
@@ -30,46 +31,42 @@ class CompactFiniteDifferenceSolver:
         :param dx: Spacing in x-direction
         :type dx: float
         '''
-        line_da = self.da.get_line_DA(0)
-        f_local = line_da.create_local_vector()
-        self.setup_primary_solver(line_da)
-        line_da.global_to_local(f, f_local)
-        rhs = self.compute_RHS(line_da, f_local, dx)
-        x_UH, x_LH = self.solve_secondary_systems(line_da)
-        x_R = self.solve_primary_systems(rhs)
-        alpha, beta = self.solve_reduced_system(line_da, x_UH, x_LH, x_R)
+        rhs = self.compute_RHS(self.x_line_da, f, dx)
+        x_UH, x_LH = self.solve_secondary_systems(self.x_line_da)
+        r_d = cl_array.to_device(self.queue, rhs)
+        self.x_primary_solver.solve(r_d.data, [1, 1])
+        x_R = r_d.get()
+        alpha, beta = self.solve_reduced_system(self.x_line_da, x_UH, x_LH, x_R)
         dfdx = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
         return dfdx 
     
     def dfdy(self, f, dy):
-        line_da = self.da.get_line_DA(1)
         f_T = f.transpose(0, 2, 1).copy()
-        f_local = line_da.create_local_vector()
-        self.setup_primary_solver(line_da)
-        line_da.global_to_local(f_T, f_local)
-        rhs = self.compute_RHS(line_da, f_local, dy)
-        x_UH, x_LH = self.solve_secondary_systems(line_da)
-        x_R = self.solve_primary_systems(rhs)
-        alpha, beta = self.solve_reduced_system(line_da, x_UH, x_LH, x_R)
+        rhs = self.compute_RHS(self.y_line_da, f_T, dy)
+        x_UH, x_LH = self.solve_secondary_systems(self.y_line_da)
+        r_d = cl_array.to_device(self.queue, rhs)
+        self.y_primary_solver.solve(r_d.data, [1, 1])
+        x_R = r_d.get()
+        alpha, beta = self.solve_reduced_system(self.y_line_da, x_UH, x_LH, x_R)
         dfdy = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
         dfdy = dfdy.transpose(0, 2, 1).copy()
         return dfdy 
 
     def dfdz(self, f, dz):
-        line_da = self.da.get_line_DA(2)
         f_T = f.transpose(1, 2, 0).copy()
-        f_local = line_da.create_local_vector()
-        self.setup_primary_solver(line_da)
-        line_da.global_to_local(f_T, f_local)
-        rhs = self.compute_RHS(line_da, f_local, dz)
-        x_UH, x_LH = self.solve_secondary_systems(line_da)
-        x_R = self.solve_primary_systems(rhs)
-        alpha, beta = self.solve_reduced_system(line_da, x_UH, x_LH, x_R)
+        rhs = self.compute_RHS(self.z_line_da, f_T, dz)
+        x_UH, x_LH = self.solve_secondary_systems(self.z_line_da)
+        r_d = cl_array.to_device(self.queue, rhs)
+        self.z_primary_solver.solve(r_d.data, [1, 1])
+        x_R = r_d.get()
+        alpha, beta = self.solve_reduced_system(self.z_line_da, x_UH, x_LH, x_R)
         dfdz = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
         dfdz = dfdz.transpose(2, 0, 1).copy()
         return dfdz
 
-    def compute_RHS(self, line_da, f_local, dx):
+    def compute_RHS(self, line_da, f, dx):
+        f_local = line_da.create_local_vector()
+        line_da.global_to_local(f, f_local)
         f_d = cl_array.to_device(self.queue, f_local)
         x_d = cl_array.Array(self.queue, (line_da.nz, line_da.ny, line_da.nx),
                 dtype=np.float64)
@@ -83,12 +80,6 @@ class CompactFiniteDifferenceSolver:
         return (x_R + 
                 np.einsum('ij,k->ijk', alpha, x_UH) +
                 np.einsum('ij,k->ijk', beta, x_LH))
-        
-    def solve_primary_systems(self, rhs):
-        r_d = cl_array.to_device(self.queue, rhs)
-        self.primary_solver.solve(r_d.data, [1, 1])
-        x_R = r_d.get()
-        return x_R
 
     def solve_reduced_system(self, line_da, x_UH, x_LH, x_R):
         nz, ny, nx = line_da.nz, line_da.ny, line_da.nx
@@ -184,7 +175,7 @@ class CompactFiniteDifferenceSolver:
             coeffs[1] = 2.
         if line_rank == line_size-1:
             coeffs[-2] = 2.
-        self.primary_solver = NearToeplitzSolver(self.ctx, self.queue,
+        return NearToeplitzSolver(self.ctx, self.queue,
                 (line_da.nz, line_da.ny, line_da.nx), coeffs)
 
     def init_cl(self):
@@ -200,7 +191,14 @@ class CompactFiniteDifferenceSolver:
         self.compute_RHS_kernel, = kernels.get_funcs(self.ctx, 'kernels.cl',
                 'computeRHS')
                  
-
+    def init_solvers(self):
+        self.x_line_da = self.da.get_line_DA(0)
+        self.y_line_da = self.da.get_line_DA(1)
+        self.z_line_da = self.da.get_line_DA(2)
+        self.x_primary_solver = self.setup_primary_solver(self.x_line_da)
+        self.y_primary_solver = self.setup_primary_solver(self.y_line_da)
+        self.z_primary_solver = self.setup_primary_solver(self.z_line_da)
+    
 def scipy_solve_banded(a, b, c, rhs):
     '''
     Solve the tridiagonal system described
