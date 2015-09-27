@@ -8,5 +8,8 @@ phony:
 test:
 	mpiexec ${MPIEXECFLAGS} -n 8 python test_compact.py
 	mpiexec ${MPIEXECFLAGS} -n 1 nosetests test_kernels.py
+
+demo:
+	mpiexec ${MPIEXECFLAGS} -n 8 python demo.py
 clean:
 	rm -f *.png *.pyc
