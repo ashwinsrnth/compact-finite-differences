@@ -32,16 +32,11 @@ class CompactFiniteDifferenceSolver:
         :type dx: float
         '''
         t1 = MPI.Wtime()
-        rhs = self.compute_RHS(self.x_line_da, f, dx)
+        r_d = self.compute_RHS(self.x_line_da, f, dx)
         t2 = MPI.Wtime()
         if self.da.rank == 0:
             print 'RHS solve: ', t2-t1
         x_UH, x_LH = self.solve_secondary_systems(self.x_line_da)
-        t1 = MPI.Wtime()
-        r_d = cl_array.to_device(self.queue, rhs)
-        t2 = MPI.Wtime()
-        if self.da.rank == 0:
-            print 'HtoD transfer: ', t2-t1
         t1 = MPI.Wtime()
         self.x_primary_solver.solve(r_d.data, [1, 1])
         t2 = MPI.Wtime()
@@ -58,9 +53,8 @@ class CompactFiniteDifferenceSolver:
     
     def dfdy(self, f, dy):
         f_T = f.transpose(0, 2, 1).copy()
-        rhs = self.compute_RHS(self.y_line_da, f_T, dy)
+        r_d = self.compute_RHS(self.y_line_da, f_T, dy)
         x_UH, x_LH = self.solve_secondary_systems(self.y_line_da)
-        r_d = cl_array.to_device(self.queue, rhs)
         self.y_primary_solver.solve(r_d.data, [1, 1])
         x_R = r_d.get()
         alpha, beta = self.solve_reduced_system(self.y_line_da, x_UH, x_LH, x_R, self.y_reduced_solver)
@@ -70,9 +64,8 @@ class CompactFiniteDifferenceSolver:
 
     def dfdz(self, f, dz):
         f_T = f.transpose(1, 2, 0).copy()
-        rhs = self.compute_RHS(self.z_line_da, f_T, dz)
+        r_d = self.compute_RHS(self.z_line_da, f_T, dz)
         x_UH, x_LH = self.solve_secondary_systems(self.z_line_da)
-        r_d = cl_array.to_device(self.queue, rhs)
         self.z_primary_solver.solve(r_d.data, [1, 1])
         x_R = r_d.get()
         alpha, beta = self.solve_reduced_system(self.z_line_da, x_UH, x_LH, x_R, self.z_reduced_solver)
@@ -89,8 +82,7 @@ class CompactFiniteDifferenceSolver:
         self.compute_RHS_kernel(self.queue, (line_da.nx, line_da.ny, line_da.nz),
                 None, f_d.data, x_d.data, np.float64(dx),
                     np.int32(line_da.rank), np.int32(line_da.size))
-        rhs = x_d.get()
-        return rhs 
+        return x_d
     
     def sum_solutions(self, line_da, x_R, x_UH, x_LH, alpha, beta):
         t1 = MPI.Wtime()
