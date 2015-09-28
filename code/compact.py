@@ -9,6 +9,8 @@ from near_toeplitz import *
 from pthomas import *
 from mpi_util import *
 
+from pycuda import autoinit
+import pycuda.driver as cuda
 
 class CompactFiniteDifferenceSolver:
 
@@ -31,12 +33,16 @@ class CompactFiniteDifferenceSolver:
         :param dx: Spacing in x-direction
         :type dx: float
         '''
+        free, total = cuda.mem_get_info()
+        print 'Mem available: {0}'.format((free/total)*100)
         r_d = self.compute_RHS(self.x_line_da, f, dx)
         x_UH, x_LH = self.solve_secondary_systems(self.x_line_da)
+        print 'Mem available: {0}'.format((free/total)*100)
         self.x_primary_solver.solve(r_d.data, [1, 1])
         alpha, beta = self.solve_reduced_system(self.x_line_da, x_UH, x_LH, r_d, self.x_reduced_solver)
         self.sum_solutions(self.x_line_da, r_d, x_UH, x_LH, alpha, beta)
         dfdx = r_d.get()
+        print 'Mem available: {0}'.format((free/total)*100)
         return dfdx 
     
     def dfdy(self, f, dy):
