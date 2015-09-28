@@ -31,13 +31,29 @@ class CompactFiniteDifferenceSolver:
         :param dx: Spacing in x-direction
         :type dx: float
         '''
+        t1 = MPI.Wtime()
         rhs = self.compute_RHS(self.x_line_da, f, dx)
+        t2 = MPI.Wtime()
+        if self.da.rank == 0:
+            print 'RHS solve: ', t2-t1
         x_UH, x_LH = self.solve_secondary_systems(self.x_line_da)
+        t1 = MPI.Wtime()
         r_d = cl_array.to_device(self.queue, rhs)
+        t2 = MPI.Wtime()
+        if self.da.rank == 0:
+            print 'HtoD transfer: ', t2-t1
+        t1 = MPI.Wtime()
         self.x_primary_solver.solve(r_d.data, [1, 1])
+        t2 = MPI.Wtime()
+        if self.da.rank == 0:
+            print 'Primary solve: ', t2-t1
         x_R = r_d.get()
         alpha, beta = self.solve_reduced_system(self.x_line_da, x_UH, x_LH, x_R, self.x_reduced_solver)
-        dfdx = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
+        t1 = MPI.Wtime()
+        dfdx = self.sum_solutions(self.x_line_da, x_R, x_UH, x_LH, alpha, beta)
+        t2 = MPI.Wtime()
+        if self.da.rank == 0:
+            print 'Sum solutions: ', t2-t1
         return dfdx 
     
     def dfdy(self, f, dy):
@@ -48,7 +64,7 @@ class CompactFiniteDifferenceSolver:
         self.y_primary_solver.solve(r_d.data, [1, 1])
         x_R = r_d.get()
         alpha, beta = self.solve_reduced_system(self.y_line_da, x_UH, x_LH, x_R, self.y_reduced_solver)
-        dfdy = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
+        dfdy = self.sum_solutions(self.y_line_da, x_R, x_UH, x_LH, alpha, beta)
         dfdy = dfdy.transpose(0, 2, 1).copy()
         return dfdy 
 
@@ -60,7 +76,7 @@ class CompactFiniteDifferenceSolver:
         self.z_primary_solver.solve(r_d.data, [1, 1])
         x_R = r_d.get()
         alpha, beta = self.solve_reduced_system(self.z_line_da, x_UH, x_LH, x_R, self.z_reduced_solver)
-        dfdz = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
+        dfdz = self.sum_solutions(self.z_line_da, x_R, x_UH, x_LH, alpha, beta)
         dfdz = dfdz.transpose(2, 0, 1).copy()
         return dfdz
 
@@ -76,10 +92,29 @@ class CompactFiniteDifferenceSolver:
         rhs = x_d.get()
         return rhs 
     
-    def sum_solutions(self, x_R, x_UH, x_LH, alpha, beta):
-        return (x_R + 
-                np.einsum('ij,k->ijk', alpha, x_UH) +
-                np.einsum('ij,k->ijk', beta, x_LH))
+    def sum_solutions(self, line_da, x_R, x_UH, x_LH, alpha, beta):
+        t1 = MPI.Wtime()
+        x_R_d = cl_array.to_device(self.queue, x_R)
+        t2 = MPI.Wtime()
+        if self.da.rank == 0:
+            print 'In sum solutions, HtoD transfer: ', t2-t1
+        x_UH_d = cl_array.to_device(self.queue, x_UH)
+        x_LH_d = cl_array.to_device(self.queue, x_LH)
+        alpha_d = cl_array.to_device(self.queue, alpha)
+        beta_d = cl_array.to_device(self.queue, beta)
+        evt = self.sum_solutions_kernel(self.queue, (line_da.nx, line_da.ny, line_da.nz), None,
+                x_R_d.data, x_UH_d.data,
+                    x_LH_d.data, alpha_d.data, beta_d.data,
+                        np.int32(line_da.nx), np.int32(line_da.ny),
+                            np.int32(line_da.nz))
+        evt.wait()
+        t1 = MPI.Wtime()
+        x = x_R_d.get()
+        t2 = MPI.Wtime()
+        if self.da.rank == 0:
+            print 'In sum solutions, DtoH transfer: ', t2-t1
+
+        return x 
 
     def solve_reduced_system(self, line_da, x_UH, x_LH, x_R, reduced_solver):
         nz, ny, nx = line_da.nz, line_da.ny, line_da.nx
@@ -196,8 +231,8 @@ class CompactFiniteDifferenceSolver:
         self.ctx = cl.Context([self.device])
         self.queue = cl.CommandQueue(self.ctx)
         
-        self.compute_RHS_kernel, = kernels.get_funcs(self.ctx, 'kernels.cl',
-                'computeRHS')
+        self.compute_RHS_kernel, self.sum_solutions_kernel, = kernels.get_funcs(
+                self.ctx, 'kernels.cl', 'computeRHS', 'sumSolutions')
                  
     def init_solvers(self):
         self.x_line_da = self.da.get_line_DA(0)
