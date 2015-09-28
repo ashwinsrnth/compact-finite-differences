@@ -43,9 +43,13 @@ def test_pThomas():
     d = np.random.rand(nz, ny, nx)
     d_copy = d.copy()
 
-    solver = pthomas.PThomas(context, queue, (nz, ny, nx), a, b, c)
+    solver = pthomas.PThomas(context, queue, (nz, ny, nx))
+    a_d = cl_array.to_device(queue, a)
+    b_d = cl_array.to_device(queue, b)
+    c_d = cl_array.to_device(queue, c)
+    c2_d = cl_array.to_device(queue, c)
     d_d = cl_array.to_device(queue, d)
-    evt = solver.solve(d_d.data)
+    evt = solver.solve(a_d.data, b_d.data, c_d.data, c2_d.data, d_d.data)
     d = d_d.get()
 
     for i in range(nz):

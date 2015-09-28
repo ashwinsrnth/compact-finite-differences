@@ -36,7 +36,7 @@ class CompactFiniteDifferenceSolver:
         r_d = cl_array.to_device(self.queue, rhs)
         self.x_primary_solver.solve(r_d.data, [1, 1])
         x_R = r_d.get()
-        alpha, beta = self.solve_reduced_system(self.x_line_da, x_UH, x_LH, x_R)
+        alpha, beta = self.solve_reduced_system(self.x_line_da, x_UH, x_LH, x_R, self.x_reduced_solver)
         dfdx = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
         return dfdx 
     
@@ -47,7 +47,7 @@ class CompactFiniteDifferenceSolver:
         r_d = cl_array.to_device(self.queue, rhs)
         self.y_primary_solver.solve(r_d.data, [1, 1])
         x_R = r_d.get()
-        alpha, beta = self.solve_reduced_system(self.y_line_da, x_UH, x_LH, x_R)
+        alpha, beta = self.solve_reduced_system(self.y_line_da, x_UH, x_LH, x_R, self.y_reduced_solver)
         dfdy = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
         dfdy = dfdy.transpose(0, 2, 1).copy()
         return dfdy 
@@ -59,7 +59,7 @@ class CompactFiniteDifferenceSolver:
         r_d = cl_array.to_device(self.queue, rhs)
         self.z_primary_solver.solve(r_d.data, [1, 1])
         x_R = r_d.get()
-        alpha, beta = self.solve_reduced_system(self.z_line_da, x_UH, x_LH, x_R)
+        alpha, beta = self.solve_reduced_system(self.z_line_da, x_UH, x_LH, x_R, self.z_reduced_solver)
         dfdz = self.sum_solutions(x_R, x_UH, x_LH, alpha, beta)
         dfdz = dfdz.transpose(2, 0, 1).copy()
         return dfdz
@@ -81,7 +81,7 @@ class CompactFiniteDifferenceSolver:
                 np.einsum('ij,k->ijk', alpha, x_UH) +
                 np.einsum('ij,k->ijk', beta, x_LH))
 
-    def solve_reduced_system(self, line_da, x_UH, x_LH, x_R):
+    def solve_reduced_system(self, line_da, x_UH, x_LH, x_R, reduced_solver):
         nz, ny, nx = line_da.nz, line_da.ny, line_da.nx
         line_rank = line_da.rank
         line_size = line_da.size
@@ -124,12 +124,16 @@ class CompactFiniteDifferenceSolver:
             b_reduced[-1] = 1.0
             a_reduced[1] = 0.
             c_reduced[-2] = 0.
-            reduced_solver = PThomas(self.ctx, self.queue, [nz, ny, 2*line_size],
-                    a_reduced, b_reduced, c_reduced)
             x_R_faces_line[:, :, 0] = 0.0
             x_R_faces_line[:, :, -1] = 0.0
+            
+            a_reduced_d = cl_array.to_device(self.queue, a_reduced)
+            b_reduced_d = cl_array.to_device(self.queue, b_reduced)
+            c_reduced_d = cl_array.to_device(self.queue, c_reduced)
+            c2_reduced_d = cl_array.to_device(self.queue, c_reduced)
             d_reduced_d = cl_array.to_device(self.queue, -x_R_faces_line)
-            reduced_solver.solve(d_reduced_d.data)
+            reduced_solver.solve(a_reduced_d.data, b_reduced_d.data,
+                    c_reduced_d.data, c2_reduced_d.data, d_reduced_d.data)
             params = d_reduced_d.get()
         else:
             params = None
@@ -167,6 +171,10 @@ class CompactFiniteDifferenceSolver:
         x_LH = scipy_solve_banded(a, b, c, r_LH)
         return x_UH, x_LH
 
+    def setup_reduced_solver(self, line_da):
+       return PThomas(self.ctx, self.queue,
+               (line_da.nz, line_da.ny, 2*line_da.npx))
+
     def setup_primary_solver(self, line_da):
         line_rank = line_da.rank
         line_size = line_da.size
@@ -198,7 +206,10 @@ class CompactFiniteDifferenceSolver:
         self.x_primary_solver = self.setup_primary_solver(self.x_line_da)
         self.y_primary_solver = self.setup_primary_solver(self.y_line_da)
         self.z_primary_solver = self.setup_primary_solver(self.z_line_da)
-    
+        self.x_reduced_solver = self.setup_reduced_solver(self.x_line_da)
+        self.y_reduced_solver = self.setup_reduced_solver(self.y_line_da)
+        self.z_reduced_solver = self.setup_reduced_solver(self.z_line_da)
+
 def scipy_solve_banded(a, b, c, rhs):
     '''
     Solve the tridiagonal system described

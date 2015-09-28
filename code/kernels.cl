@@ -149,8 +149,8 @@ __kernel void copyFaces(__global double* x,
 __kernel void pThomasKernel(__global double *a_d,
                                 __global double *b_d,
                                 __global double *c_d,
-                                __global double *d_d,
                                 __global double *c2_d,
+                                __global double *d_d,
                                 int block_size)
 {
     /*
