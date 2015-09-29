@@ -9,8 +9,6 @@ from near_toeplitz import *
 from pthomas import *
 from mpi_util import *
 
-from pycuda import autoinit
-import pycuda.driver as cuda
 
 class CompactFiniteDifferenceSolver:
 
@@ -26,57 +24,42 @@ class CompactFiniteDifferenceSolver:
         self.init_cl()
         self.init_solvers()
 
-    def dfdx(self, f, dx):
+    def get_derivatives(self, f, dx, dy, dz):
         '''
         :param f: The 3-d array with function values
         :type f: numpy.ndarray
         :param dx: Spacing in x-direction
         :type dx: float
         '''
-        free, total = cuda.mem_get_info()
-        print 'Mem available: {0}'.format((free/total)*100)
-        r_d = self.compute_RHS(self.x_line_da, f, dx)
-        x_UH, x_LH = self.solve_secondary_systems(self.x_line_da)
-        print 'Mem available: {0}'.format((free/total)*100)
-        self.x_primary_solver.solve(r_d.data, [1, 1])
-        alpha, beta = self.solve_reduced_system(self.x_line_da, x_UH, x_LH, r_d, self.x_reduced_solver)
-        self.sum_solutions(self.x_line_da, r_d, x_UH, x_LH, alpha, beta)
-        dfdx = r_d.get()
-        print 'Mem available: {0}'.format((free/total)*100)
-        return dfdx 
-    
-    def dfdy(self, f, dy):
-        f_T = f.transpose(0, 2, 1).copy()
-        r_d = self.compute_RHS(self.y_line_da, f_T, dy)
-        x_UH, x_LH = self.solve_secondary_systems(self.y_line_da)
-        self.y_primary_solver.solve(r_d.data, [1, 1])
-        alpha, beta = self.solve_reduced_system(self.y_line_da, x_UH, x_LH, r_d, self.y_reduced_solver)
-        self.sum_solutions(self.y_line_da, r_d, x_UH, x_LH, alpha, beta)
-        dfdy = r_d.get()
-        dfdy = dfdy.transpose(0, 2, 1).copy()
-        return dfdy 
+        rx_d, ry_d, rz_d = self.compute_RHS(f, dx, dy, dz)
+        #x_UH, x_LH = self.solve_secondary_systems(self.x_line_da)
+        #self.x_primary_solver.solve(r_d.data, [1, 1])
+        #alpha, beta = self.solve_reduced_system(self.x_line_da, x_UH, x_LH, r_d, self.x_reduced_solver)
+        #self.sum_solutions(self.x_line_da, r_d, x_UH, x_LH, alpha, beta)
+        dfdx = rx_d.get()
+        dfdy = ry_d.get()
+        dfdz = rz_d.get()
+        return dfdx, dfdy, dfdz
 
-    def dfdz(self, f, dz):
-        f_T = f.transpose(1, 2, 0).copy()
-        r_d = self.compute_RHS(self.z_line_da, f_T, dz)
-        x_UH, x_LH = self.solve_secondary_systems(self.z_line_da)
-        self.z_primary_solver.solve(r_d.data, [1, 1])
-        alpha, beta = self.solve_reduced_system(self.z_line_da, x_UH, x_LH, r_d, self.z_reduced_solver)
-        self.sum_solutions(self.z_line_da, r_d, x_UH, x_LH, alpha, beta)
-        dfdz = r_d.get()
-        dfdz = dfdz.transpose(2, 0, 1).copy()
-        return dfdz
-
-    def compute_RHS(self, line_da, f, dx):
-        f_local = line_da.create_local_vector()
-        line_da.global_to_local(f, f_local)
+    def compute_RHS(self, f, dx, dy, dz):
+        f_local = self.da.create_local_vector()
+        self.da.global_to_local(f, f_local)
         f_d = cl_array.to_device(self.queue, f_local)
-        x_d = cl_array.Array(self.queue, (line_da.nz, line_da.ny, line_da.nx),
+        rx_d = cl_array.Array(self.queue, (self.da.nz, self.da.ny, self.da.nx),
                 dtype=np.float64)
-        self.compute_RHS_kernel(self.queue, (line_da.nx, line_da.ny, line_da.nz),
-                None, f_d.data, x_d.data, np.float64(dx),
-                    np.int32(line_da.rank), np.int32(line_da.size))
-        return x_d
+        ry_d = cl_array.Array(self.queue, (self.da.nz, self.da.ny, self.da.nx),
+                dtype=np.float64)
+        rz_d = cl_array.Array(self.queue, (self.da.nz, self.da.ny, self.da.nx),
+                dtype=np.float64)
+        self.compute_RHS_kernel(self.queue,
+            [self.da.nz, self.da.ny, self.da.nx], None,
+                f_d.data, rx_d.data, ry_d.data, rz_d.data,
+                    np.float64(dx), np.float64(dy), np.float64(dz),
+                        np.int32(self.da.mx), np.int32(self.da.npx),
+                        np.int32(self.da.my), np.int32(self.da.npy),
+                        np.int32(self.da.mz), np.int32(self.da.npz))
+        
+        return rx_d, ry_d, rz_d
     
     def sum_solutions(self, line_da, x_R_d, x_UH, x_LH, alpha, beta):
         x_UH_d = cl_array.to_device(self.queue, x_UH)
