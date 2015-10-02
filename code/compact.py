@@ -11,7 +11,7 @@ from mpi_util import *
 
 class CompactFiniteDifferenceSolver:
 
-    def __init__(self, da, use_gpu = False):
+    def __init__(self, da, use_gpu=False):
         '''
         :param da: DA object carrying the grid information
         :type da: mpi_util.DA
