@@ -5,6 +5,7 @@ test:
 	make test_3d
 	make test_dof
 	make test_dof_3d
+	make test_misc
 	rm -f *.pyc
 
 test_1d:
@@ -22,6 +23,10 @@ test_dof:
 test_dof_3d:
 	@echo "testing 3d case with 27 procs and stencil width 2: "
 	mpiexec -n 27 ${MPIFLAGS} nosetests test_sw_3d.py
+
+test_misc:
+	@echo "testing miscellaneous functions in mpi_util: "
+	mpiexec -n 8 ${MPIFLAGS} python test_misc.py
 
 clean:
 	rm -f *.pyc
