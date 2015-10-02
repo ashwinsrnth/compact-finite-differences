@@ -273,7 +273,6 @@ class DA:
         sw = self.stencil_width
         d, h, w = copy_dims
         z_offs, y_offs, x_offs = copy_offsets
-        print array.shape, x_offs, x_offs+w
         array[z_offs:z_offs+d, y_offs:y_offs+h, x_offs:x_offs+w] = halo
 
     def _copy_global_to_local(self, global_array, local_array, dtype=np.float64):
