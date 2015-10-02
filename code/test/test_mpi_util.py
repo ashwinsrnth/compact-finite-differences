@@ -1,3 +1,5 @@
+import sys
+sys.path.append('..')
 from mpi_util import *
 import numpy as np
 from mpi4py import MPI
