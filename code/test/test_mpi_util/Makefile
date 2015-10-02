@@ -3,6 +3,8 @@ MPIFLAGS=--mca btl_openib_warn_nonexistent_if 0 --mca btl_openib_want_cuda_gdr 0
 test:
 	make test_1d
 	make test_3d
+	make test_dof
+	make test_dof_3d
 	rm -f *.pyc
 
 test_1d:
@@ -12,6 +14,14 @@ test_1d:
 test_3d:
 	@echo "testing 3d case with 27 procs: "
 	mpiexec -n 27 ${MPIFLAGS} nosetests test_3d.py
+
+test_dof:
+	@echo "testing 1d case with 3 procs and stencil width 2: "
+	mpiexec -n 3 ${MPIFLAGS} nosetests test_sw.py
+
+test_dof_3d:
+	@echo "testing 3d case with 27 procs and stencil width 2: "
+	mpiexec -n 27 ${MPIFLAGS} nosetests test_sw_3d.py
 
 clean:
 	rm -f *.pyc
