@@ -1,6 +1,5 @@
 from createDA import *
 from numpy.testing import *
-from pycuda import autoinit
 
 class TestDOF:
     @classmethod
@@ -11,12 +10,12 @@ class TestDOF:
         proc_sizes = [1, 1, 3]
         local_dims = [1, 3, 3]
         nz, ny, nx = local_dims
-        cls.da = create_da(proc_sizes, local_dims, dof=2)
+        cls.da = create_da(proc_sizes, local_dims, sw=2)
 
     def test_center(self):
-        a = self.da.create_global_vec()
+        a = self.da.create_global_vector()
         a.fill(self.rank)
-        b = self.da.create_local_vec()
+        b = self.da.create_local_vector()
         b.fill(1.0)
         self.da.global_to_local(a, b)
 
@@ -28,10 +27,10 @@ class TestDOF:
             assert_equal(self.da.right_recv_halo, 2)
     
     def test_sides(self):
-        a_gpu = self.da.create_global_vec()
-        a_gpu.set_value(self.rank)
-        b_gpu = self.da.create_local_vec()
-        self.da.global_to_local(a_gpu, b_gpu)
+        a = self.da.create_global_vector()
+        a.fill(self.rank)
+        b = self.da.create_local_vector()
+        self.da.global_to_local(a, b)
 
         # test left and right:
         if self.rank == 0:

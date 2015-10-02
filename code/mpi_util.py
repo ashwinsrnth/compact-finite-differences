@@ -112,19 +112,19 @@ class DA:
             self._copy_halo_to_array(self.left_recv_halo, local_array, [nz, ny, sw], [sw, sw, 0])
 
         if self.has_neighbour('right'):
-            self._copy_halo_to_array(self.right_recv_halo, local_array, [nz, ny, sw], [sw, sw, 2*sw+nx-1])
+            self._copy_halo_to_array(self.right_recv_halo, local_array, [nz, ny, sw], [sw, sw, sw+nx])
 
         if self.has_neighbour('bottom'):
             self._copy_halo_to_array(self.bottom_recv_halo, local_array, [nz, sw, nx], [sw, 0, sw])
 
         if self.has_neighbour('top'):
-            self._copy_halo_to_array(self.top_recv_halo, local_array, [nz, sw, nx], [sw, 2*sw+ny-1, sw])
+            self._copy_halo_to_array(self.top_recv_halo, local_array, [nz, sw, nx], [sw, sw+ny, sw])
 
         if self.has_neighbour('front'):
             self._copy_halo_to_array(self.front_recv_halo, local_array, [sw, ny, nx], [0, sw, sw])
 
         if self.has_neighbour('back'):
-            self._copy_halo_to_array(self.back_recv_halo, local_array, [sw, ny, nx], [2*sw+nz-1, sw, sw])
+            self._copy_halo_to_array(self.back_recv_halo, local_array, [sw, ny, nx], [sw+nz, sw, sw])
 
     def local_to_global(self, local_array, global_array):
         """
@@ -273,7 +273,7 @@ class DA:
         sw = self.stencil_width
         d, h, w = copy_dims
         z_offs, y_offs, x_offs = copy_offsets
-
+        print array.shape, x_offs, x_offs+w
         array[z_offs:z_offs+d, y_offs:y_offs+h, x_offs:x_offs+w] = halo
 
     def _copy_global_to_local(self, global_array, local_array, dtype=np.float64):

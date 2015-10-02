@@ -2,7 +2,7 @@ import sys
 sys.path.append('../..')
 from mpi_util import *
 
-def create_da(proc_sizes, local_dims):
+def create_da(proc_sizes, local_dims, sw=1):
     '''
     Convenience function: creates a DA for running
     the tests
@@ -14,6 +14,6 @@ def create_da(proc_sizes, local_dims):
     nz, ny, nx = local_dims
     assert(npx*npy*npz == size)
     comm = comm.Create_cart([npz, npy, npx], reorder=True)
-    da = DA(comm, [nz, ny, nx], [npz, npy, npx], 1)
+    da = DA(comm, [nz, ny, nx], [npz, npy, npx], stencil_width=sw)
      
     return da
