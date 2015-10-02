@@ -15,5 +15,5 @@ class PThomas:
     
     def solve(self, a_g, b_g, c_g, c2_g, x_g):
         evt = self.pThomas(self.queue, [self.nz*self.ny], None,
-             a_g, b_g, c_g, c2_g, x_g, np.int32(self.nx))
+             a_g.data, b_g.data, c_g.data, c2_g.data, x_g.data, np.int32(self.nx))
         return evt 

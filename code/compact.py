@@ -138,8 +138,8 @@ class CompactFiniteDifferenceSolver:
             c_reduced_d = cl_array.to_device(self.queue, c_reduced)
             c2_reduced_d = cl_array.to_device(self.queue, c_reduced)
             d_reduced_d = cl_array.to_device(self.queue, -x_R_faces_line)
-            reduced_solver.solve(a_reduced_d.data, b_reduced_d.data,
-                    c_reduced_d.data, c2_reduced_d.data, d_reduced_d.data)
+            reduced_solver.solve(a_reduced_d, b_reduced_d,
+                    c_reduced_d, c2_reduced_d, d_reduced_d)
             params = d_reduced_d.get()
         else:
             params = None
