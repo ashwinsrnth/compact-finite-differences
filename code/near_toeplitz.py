@@ -98,7 +98,7 @@ class NearToeplitzSolver:
         for i in np.arange(int(np.log2(self.nx))):
             stride *= 2
             evt = self.forward_reduction(self.queue, [self.nx/stride, self.ny, self.nz], [self.nx/stride, by, bz],
-                self.a_d.data, self.b_d.data, self.c_d.data, x_d, self.k1_d.data, self.k2_d.data,
+                self.a_d.data, self.b_d.data, self.c_d.data, x_d.data, self.k1_d.data, self.k2_d.data,
                     self.b_first_d.data, self.k1_first_d.data, self.k1_last_d.data,
                         np.int32(self.nx), np.int32(self.ny), np.int32(self.nz),
                             np.int32(stride))
@@ -108,7 +108,7 @@ class NearToeplitzSolver:
         for i in np.arange(int(np.log2(self.nx))-1):
             stride /= 2
             evt = self.back_substitution(self.queue, [self.nx/stride, self.ny, self.nz], [self.nx/stride, by, bz],
-                self.a_d.data, self.b_d.data, self.c_d.data, x_d, self.b_first_d.data,
+                self.a_d.data, self.b_d.data, self.c_d.data, x_d.data, self.b_first_d.data,
                     np.float64(b1), np.float64(c1),
                         np.float64(ai), np.float64(bi), np.float64(ci),
                             np.int32(self.nx), np.int32(self.ny), np.int32(self.nz),
