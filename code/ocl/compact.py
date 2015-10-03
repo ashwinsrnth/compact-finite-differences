@@ -108,7 +108,8 @@ class CompactFiniteDifferenceSolver:
                 (nz, ny, 2), np.float64)
         self.copy_faces_kernel(self.queue, [1, ny, nz], None,
                 x_R_d.data, x_R_faces_d.data,
-                    np.int32(nx), np.int32(ny), np.int32(nz))
+                    np.int32(nx), np.int32(ny), np.int32(nz),
+                        np.int32(line_da.mx), np.int32(line_da.npx-1))
         x_R_faces = x_R_faces_d.get()
         x_R_faces_line = np.zeros([nz, ny, 2*line_size], dtype=np.float64)
         line_da.gatherv([x_R_faces, MPI.DOUBLE],
@@ -130,14 +131,11 @@ class CompactFiniteDifferenceSolver:
             b_reduced[-1] = 1.0
             a_reduced[1] = 0.
             c_reduced[-2] = 0.
-            x_R_faces_line[:, :, 0] = 0.0
-            x_R_faces_line[:, :, -1] = 0.0
-            
             a_reduced_d = cl_array.to_device(self.queue, a_reduced)
             b_reduced_d = cl_array.to_device(self.queue, b_reduced)
             c_reduced_d = cl_array.to_device(self.queue, c_reduced)
             c2_reduced_d = cl_array.to_device(self.queue, c_reduced)
-            d_reduced_d = cl_array.to_device(self.queue, -x_R_faces_line)
+            d_reduced_d = cl_array.to_device(self.queue, x_R_faces_line)
             reduced_solver.solve(a_reduced_d, b_reduced_d,
                     c_reduced_d, c2_reduced_d, d_reduced_d)
             params = d_reduced_d.get()
@@ -203,7 +201,7 @@ class CompactFiniteDifferenceSolver:
         self.queue = cl.CommandQueue(self.ctx)
         
         self.compute_RHS_kernel, self.sum_solutions_kernel, self.copy_faces_kernel, = kernels.get_funcs(
-                self.ctx, 'kernels.cl', 'computeRHS', 'sumSolutions', 'copyFaces')
+                self.ctx, 'kernels.cl', 'computeRHS', 'sumSolutions', 'negateAndCopyFaces')
                  
     def init_solvers(self):
         self.x_line_da = self.da.get_line_DA(0)
