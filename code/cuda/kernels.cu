@@ -74,14 +74,17 @@ __global__ void sumSolutions(double* x_R_d,
     x_R_d[i3d] = x_R_d[i3d] + alpha[i2d]*x_UH_d[ix] + beta[i2d]*x_LH_d[ix];
 }
 
-__global__ void copyFaces( double* x,
+__global__ void negateAndCopyFaces( double* x,
              double* x_faces,
             int nx,
             int ny,
-            int nz) {
+            int nz,
+            int mx,
+            int npx) {
     
     /*
-    Copy the left and right face from the logically [nz, ny, nx] array x
+    Negate and 
+    copy the left and right face from the logically [nz, ny, nx] array x
     to a logically [nz, ny, 2] array x_faces 
     */
 
@@ -94,13 +97,20 @@ __global__ void copyFaces( double* x,
     i_source = iz*(nx*ny) + iy*nx + 0;
     i_dest = iz*(2*ny) + iy*2 + 0;
     
-    x_faces[i_dest] = x[i_source];
+    x_faces[i_dest] = -x[i_source];
+
+    if (mx == 0) {
+        x_faces[i_dest] = 0.0;        
+    }
 
     i_source = iz*(nx*ny) + iy*nx + nx-1;
     i_dest = iz*(2*ny) + iy*2 + 1;
     
-    x_faces[i_dest] = x[i_source];
-
+    x_faces[i_dest] = -x[i_source];
+    
+    if (mx == npx-1) {
+        x_faces[i_dest] = 0.0;        
+    }
 }
 
 __global__ void pThomasKernel( double *a_d,

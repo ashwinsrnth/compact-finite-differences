@@ -113,10 +113,12 @@ class CompactFiniteDifferenceSolver:
         
         x_R_faces_d = gpuarray.zeros((nz, ny, 2), np.float64)
         self.copy_faces_kernel.prepare([np.intp, np.intp,
-            np.intc, np.intc, np.intc])
+            np.intc, np.intc, np.intc, np.intc, np.intc])
         self.copy_faces_kernel.prepared_call((1, ny/16, nz/16), (1, 16, 16),
                 x_R_d.gpudata, x_R_faces_d.gpudata,
-                    np.int32(nx), np.int32(ny), np.int32(nz))
+                    np.int32(nx), np.int32(ny), np.int32(nz),
+                        np.int32(line_da.mx), np.int32(line_da.npx))
+
         x_R_faces = x_R_faces_d.get()
         x_R_faces_line = np.zeros([nz, ny, 2*line_size], dtype=np.float64)
         line_da.gatherv([x_R_faces, MPI.DOUBLE],
@@ -138,14 +140,11 @@ class CompactFiniteDifferenceSolver:
             b_reduced[-1] = 1.0
             a_reduced[1] = 0.
             c_reduced[-2] = 0.
-            x_R_faces_line[:, :, 0] = 0.0
-            x_R_faces_line[:, :, -1] = 0.0
-            
             a_reduced_d = gpuarray.to_gpu(a_reduced)
             b_reduced_d = gpuarray.to_gpu(b_reduced)
             c_reduced_d = gpuarray.to_gpu(c_reduced)
             c2_reduced_d = gpuarray.to_gpu(c_reduced)
-            d_reduced_d = gpuarray.to_gpu(-x_R_faces_line)
+            d_reduced_d = gpuarray.to_gpu(x_R_faces_line)
             reduced_solver.solve(a_reduced_d, b_reduced_d,
                     c_reduced_d, c2_reduced_d, d_reduced_d)
             params = d_reduced_d.get()
@@ -200,7 +199,7 @@ class CompactFiniteDifferenceSolver:
 
     def init_cu(self):
         self.compute_RHS_kernel, self.sum_solutions_kernel, self.copy_faces_kernel, = kernels.get_funcs(
-                'kernels.cu', 'computeRHS', 'sumSolutions', 'copyFaces')
+                'kernels.cu', 'computeRHS', 'sumSolutions', 'negateAndCopyFaces')
                  
     def init_solvers(self):
         self.x_line_da = self.da.get_line_DA(0)
