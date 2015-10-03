@@ -1,3 +1,5 @@
+from pycuda import autoinit
+import pycuda.compiler as compiler
 import numpy as np
 import pyopencl as cl
 import os

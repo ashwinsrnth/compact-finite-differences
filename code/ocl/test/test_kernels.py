@@ -48,7 +48,7 @@ def test_pthomas():
     c_d = cl_array.to_device(queue, c)
     c2_d = cl_array.to_device(queue, c)
     d_d = cl_array.to_device(queue, d)
-    evt = solver.solve(a_d.data, b_d.data, c_d.data, c2_d.data, d_d.data)
+    evt = solver.solve(a_d, b_d, c_d, c2_d, d_d)
     d = d_d.get()
 
     for i in range(nz):
