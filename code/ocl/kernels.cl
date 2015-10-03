@@ -93,7 +93,7 @@ __kernel void negateAndCopyFaces(__global double* x,
     i_source = iz*(nx*ny) + iy*nx + 0;
     i_dest = iz*(2*ny) + iy*2 + 0;
     
-    x_faces[i_dest] = x[i_source];
+    x_faces[i_dest] = -x[i_source];
 
     if (mx == 0) {
         x_faces[i_dest] = 0.0;        
@@ -102,7 +102,7 @@ __kernel void negateAndCopyFaces(__global double* x,
     i_source = iz*(nx*ny) + iy*nx + nx-1;
     i_dest = iz*(2*ny) + iy*2 + 1;
     
-    x_faces[i_dest] = x[i_source];
+    x_faces[i_dest] = -x[i_source];
 
     if (mx == npx-1) {
         x_faces[i_dest] = 0.0;        
