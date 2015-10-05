@@ -1,7 +1,7 @@
 import numpy as np
 from mpi4py import MPI
 from gpuDA import *
-from compact_cu import CompactFiniteDifferenceSolver
+from compact import CompactFiniteDifferenceSolver
 import matplotlib.pyplot as plt
 
 comm = MPI.COMM_WORLD 

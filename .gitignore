@@ -1,6 +1,7 @@
 *.png
 *.pyc
 *.png
+*.svg
 *run
 *.txt
 *.o

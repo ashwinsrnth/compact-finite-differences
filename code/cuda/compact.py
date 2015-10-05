@@ -5,8 +5,8 @@ import pycuda.gpuarray as gpuarray
 import numpy as np
 from scipy.linalg import solve_banded
 import kernels
-from near_toeplitz_cu import *
-from pthomas_cu import *
+from near_toeplitz import *
+from pthomas import *
 from gpuDA import *
 
 class CompactFiniteDifferenceSolver:
