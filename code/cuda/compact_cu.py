@@ -7,7 +7,7 @@ from scipy.linalg import solve_banded
 import kernels
 from near_toeplitz_cu import *
 from pthomas_cu import *
-from mpi_util import *
+from gpuDA import *
 
 class CompactFiniteDifferenceSolver:
 
@@ -23,21 +23,22 @@ class CompactFiniteDifferenceSolver:
         self.init_cu()
         self.init_solvers()
 
-    def dfdx(self, f, dx):
+    def dfdx(self, f_d, dx):
         '''
         :param f: The 3-d array with function values
         :type f: numpy.ndarray
         :param dx: Spacing in x-direction
         :type dx: float
         '''
-        r_d = self.compute_RHS(self.x_line_da, f, dx)
-        x_UH, x_LH = self.solve_secondary_systems(self.x_line_da)
+        r_d = self.compute_RHS(self.x_line_da, f_d, dx)
+        x_UH_d, x_LH_d = self.solve_secondary_systems(self.x_line_da)
         self.x_primary_solver.solve(r_d, [1, 1])
-        alpha, beta = self.solve_reduced_system(self.x_line_da, x_UH, x_LH, r_d, self.x_reduced_solver)
-        self.sum_solutions(self.x_line_da, r_d, x_UH, x_LH, alpha, beta)
-        dfdx = r_d.get()
-        return dfdx 
-    
+        alpha_d, beta_d = self.solve_reduced_system(self.x_line_da, x_UH_d, x_LH_d, r_d, self.x_reduced_solver)
+        self.sum_solutions(self.x_line_da, x_UH_d, x_LH_d, r_d, alpha_d, beta_d)
+        #dfdx = r_d.get()
+        return r_d
+
+    ''' 
     def dfdy(self, f, dy):
         f_T = f.transpose(0, 2, 1).copy()
         r_d = self.compute_RHS(self.y_line_da, f_T, dy)
@@ -59,24 +60,20 @@ class CompactFiniteDifferenceSolver:
         dfdz = r_d.get()
         dfdz = dfdz.transpose(2, 0, 1).copy()
         return dfdz
+    '''
 
-    def compute_RHS(self, line_da, f, dx):
-        f_local = line_da.create_local_vector()
-        line_da.global_to_local(f, f_local)
-        f_d = gpuarray.to_gpu(f_local)
+    def compute_RHS(self, line_da, f_d, dx):
+        f_local_d = line_da.create_local_vector()
+        line_da.global_to_local(f_d, f_local_d)
         x_d = gpuarray.zeros((line_da.nz, line_da.ny, line_da.nx),
                 dtype=np.float64)
         self.compute_RHS_kernel.prepare([np.intp, np.intp, np.float64, np.intc, np.intc])
         self.compute_RHS_kernel.prepared_call((line_da.nx/8, line_da.ny/8, line_da.nz/8), (8, 8, 8),
-                    f_d.gpudata, x_d.gpudata, np.float64(dx),
+                    f_local_d.gpudata, x_d.gpudata, np.float64(dx),
                         np.int32(line_da.rank), np.int32(line_da.size))
         return x_d
     
-    def sum_solutions(self, line_da, x_R_d, x_UH, x_LH, alpha, beta):
-        x_UH_d = gpuarray.to_gpu(x_UH)
-        x_LH_d = gpuarray.to_gpu(x_LH)
-        alpha_d = gpuarray.to_gpu(alpha)
-        beta_d = gpuarray.to_gpu(beta)
+    def sum_solutions(self, line_da, x_UH_d, x_LH_d, x_R_d, alpha_d, beta_d):
         self.sum_solutions_kernel.prepare([np.intp, np.intp,
                 np.intp, np.intp, np.intp,
                     np.intc, np.intc, np.intc])
@@ -89,7 +86,10 @@ class CompactFiniteDifferenceSolver:
                             np.int32(line_da.ny),
                             np.int32(line_da.nz))
 
-    def solve_reduced_system(self, line_da, x_UH, x_LH, x_R_d, reduced_solver):
+    def solve_reduced_system(self, line_da, x_UH_d, x_LH_d, x_R_d, reduced_solver):
+        x_UH = x_UH_d.get()
+        x_LH = x_LH_d.get()
+
         nz, ny, nx = line_da.nz, line_da.ny, line_da.nx
         line_rank = line_da.rank
         line_size = line_da.size
@@ -119,10 +119,10 @@ class CompactFiniteDifferenceSolver:
                     np.int32(nx), np.int32(ny), np.int32(nz),
                         np.int32(line_da.mx), np.int32(line_da.npx))
 
-        x_R_faces = x_R_faces_d.get()
-        x_R_faces_line = np.zeros([nz, ny, 2*line_size], dtype=np.float64)
-        line_da.gatherv([x_R_faces, MPI.DOUBLE],
-                [x_R_faces_line, lengths, displacements, subarray])
+        #x_R_faces = x_R_faces_d.get()
+        x_R_faces_line_d = gpuarray.zeros((nz, ny, 2*line_size), dtype=np.float64)
+        line_da.gatherv([x_R_faces_d.gpudata.as_buffer(x_R_faces_d.nbytes), MPI.DOUBLE],
+                [x_R_faces_line_d.gpudata.as_buffer(x_R_faces_line_d.nbytes), lengths, displacements, subarray])
         
         if line_rank == 0:
             a_reduced = np.zeros(2*line_size, dtype=np.float64)
@@ -144,10 +144,9 @@ class CompactFiniteDifferenceSolver:
             b_reduced_d = gpuarray.to_gpu(b_reduced)
             c_reduced_d = gpuarray.to_gpu(c_reduced)
             c2_reduced_d = gpuarray.to_gpu(c_reduced)
-            d_reduced_d = gpuarray.to_gpu(x_R_faces_line)
             reduced_solver.solve(a_reduced_d, b_reduced_d,
-                    c_reduced_d, c2_reduced_d, d_reduced_d)
-            params = d_reduced_d.get()
+                    c_reduced_d, c2_reduced_d, x_R_faces_line_d)
+            params = x_R_faces_line_d.get()
         else:
             params = None
         
@@ -156,7 +155,9 @@ class CompactFiniteDifferenceSolver:
                 [params_local, MPI.DOUBLE])
         alpha = params_local[:, :, 0].copy()
         beta = params_local[:, :, 1].copy()
-        return alpha, beta
+        alpha_d = gpuarray.to_gpu(alpha)
+        beta_d = gpuarray.to_gpu(beta)
+        return alpha_d, beta_d
         
     def solve_secondary_systems(self, line_da):
         nz, ny, nx = line_da.nz, line_da.ny, line_da.nx
@@ -182,7 +183,9 @@ class CompactFiniteDifferenceSolver:
 
         x_UH = scipy_solve_banded(a, b, c, r_UH)
         x_LH = scipy_solve_banded(a, b, c, r_LH)
-        return x_UH, x_LH
+        x_UH_d = gpuarray.to_gpu(x_UH)
+        x_LH_d = gpuarray.to_gpu(x_LH)
+        return x_UH_d, x_LH_d
 
     def setup_reduced_solver(self, line_da):
        return PThomas((line_da.nz, line_da.ny, 2*line_da.npx))
