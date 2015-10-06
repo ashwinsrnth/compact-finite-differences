@@ -6,7 +6,7 @@ import numpy as np
 from scipy.linalg import solve_banded
 import kernels
 from near_toeplitz import *
-from pthomas import *
+from reduced import *
 from gpuDA import *
 
 class CompactFiniteDifferenceSolver:
@@ -30,11 +30,60 @@ class CompactFiniteDifferenceSolver:
         :param dx: Spacing in x-direction
         :type dx: float
         '''
+        start = cuda.Event()
+        end = cuda.Event()
+        self.da.comm.Barrier()
+        t1 = MPI.Wtime()
+        start.record()
+        
         r_d = self.compute_RHS(self.x_line_da, f_d, dx)
+        
+        end.record()
+        end.synchronize()
+        self.da.comm.Barrier()
+        t2 = MPI.Wtime()
+        if self.da.rank == 0: print 'RHS: ', t2-t1 
+        
         x_UH_d, x_LH_d = self.solve_secondary_systems(self.x_line_da)
+
+        self.da.comm.Barrier()
+        t1 = MPI.Wtime()
+        start.record()
+        
         self.x_primary_solver.solve(r_d, [1, 1])
+        
+        end.record()
+        end.synchronize()
+        self.da.comm.Barrier()
+        t2 = MPI.Wtime()
+        
+        if self.da.rank == 0: print 'Primary: ', t2-t1 
+        
+        self.da.comm.Barrier()
+        t1 = MPI.Wtime()
+        start.record()
+
         alpha_d, beta_d = self.solve_reduced_system(self.x_line_da, x_UH_d, x_LH_d, r_d, self.x_reduced_solver)
+
+        end.record()
+        end.synchronize()
+        self.da.comm.Barrier()
+        t2 = MPI.Wtime()
+
+        if self.da.rank == 0: print 'Reduced: ', t2-t1 
+
+        self.da.comm.Barrier()
+        t1 = MPI.Wtime()
+        start.record()
+
         self.sum_solutions(self.x_line_da, x_UH_d, x_LH_d, r_d, alpha_d, beta_d)
+
+        end.record()
+        end.synchronize()
+        self.da.comm.Barrier()
+        t2 = MPI.Wtime()
+
+        if self.da.rank == 0: print 'Sum: ', t2-t1 
         #dfdx = r_d.get()
         return r_d
 
@@ -96,6 +145,7 @@ class CompactFiniteDifferenceSolver:
         
         x_UH_line = np.zeros(2*line_size, dtype=np.float64)
         x_LH_line = np.zeros(2*line_size, dtype=np.float64)
+
         line_da.gather(
                 [np.array([x_UH[0], x_UH[-1]]), 2, MPI.DOUBLE],
                 [x_UH_line, 2, MPI.DOUBLE])
@@ -103,26 +153,33 @@ class CompactFiniteDifferenceSolver:
                 [np.array([x_LH[0], x_LH[-1]]), 2, MPI.DOUBLE],
                 [x_LH_line, 2, MPI.DOUBLE])
 
-        lengths = np.ones(line_size)
-        displacements = np.arange(0, 2*line_size, 2)
-        start_z, start_y, start_x = 0, 0, displacements[line_rank]
-        subarray_aux = MPI.DOUBLE.Create_subarray([nz, ny, 2*line_size],
-                            [nz, ny, 2], [start_z, start_y, start_x])
-        subarray = subarray_aux.Create_resized(0, 8)
-        subarray.Commit()
         
-        x_R_faces_d = gpuarray.zeros((nz, ny, 2), np.float64)
+        x_R_faces_d = gpuarray.zeros((2, nz, ny), np.float64)
         self.copy_faces_kernel.prepare([np.intp, np.intp,
             np.intc, np.intc, np.intc, np.intc, np.intc])
-        self.copy_faces_kernel.prepared_call((1, ny/16, nz/16), (1, 16, 16),
+
+        self.copy_faces_kernel.prepared_call((ny/16, nz/16, 1), (16, 16, 1),
                 x_R_d.gpudata, x_R_faces_d.gpudata,
                     np.int32(nx), np.int32(ny), np.int32(nz),
                         np.int32(line_da.mx), np.int32(line_da.npx))
 
-        x_R_faces_line_d = gpuarray.zeros((nz, ny, 2*line_size), dtype=np.float64)
-        line_da.gatherv([x_R_faces_d.gpudata.as_buffer(x_R_faces_d.nbytes), MPI.DOUBLE],
-                [x_R_faces_line_d.gpudata.as_buffer(x_R_faces_line_d.nbytes), lengths, displacements, subarray])
+        start = cuda.Event()
+        end = cuda.Event()
+        x_R_faces_line_d = gpuarray.zeros((2*line_size, nz, ny), dtype=np.float64)
+        self.da.comm.Barrier()
+        t1 = MPI.Wtime()
+        start.record()
+
+        line_da.gather([x_R_faces_d.gpudata.as_buffer(x_R_faces_d.nbytes), 2*nz*ny, MPI.DOUBLE],
+                [x_R_faces_line_d.gpudata.as_buffer(x_R_faces_line_d.nbytes), 2*nz*ny, MPI.DOUBLE])
         
+        end.record()
+        end.synchronize()
+        self.da.comm.Barrier()
+        t2 = MPI.Wtime()
+
+        if self.da.rank == 0: print 'Gathering faces: ', t2-t1 
+
         if line_rank == 0:
             a_reduced = np.zeros(2*line_size, dtype=np.float64)
             b_reduced = np.zeros(2*line_size, dtype=np.float64)
@@ -143,19 +200,30 @@ class CompactFiniteDifferenceSolver:
             b_reduced_d = gpuarray.to_gpu(b_reduced)
             c_reduced_d = gpuarray.to_gpu(c_reduced)
             c2_reduced_d = gpuarray.to_gpu(c_reduced)
+
             reduced_solver.solve(a_reduced_d, b_reduced_d,
                     c_reduced_d, c2_reduced_d, x_R_faces_line_d)
-            params = x_R_faces_line_d.get()
-        else:
-            params = None
+
+
+        start = cuda.Event()
+        end = cuda.Event()
+        x_R_faces_line_d = gpuarray.zeros((2*line_size, nz, ny), dtype=np.float64)
+        self.da.comm.Barrier()
+        t1 = MPI.Wtime()
+        start.record()
+
+        line_da.scatter([x_R_faces_line_d.gpudata.as_buffer(x_R_faces_line_d.nbytes), 2*nz*ny, MPI.DOUBLE],
+                [x_R_faces_d.gpudata.as_buffer(x_R_faces_d.nbytes), 2*nz*ny, MPI.DOUBLE])
+
+        end.record()
+        end.synchronize()
+        self.da.comm.Barrier()
+        t2 = MPI.Wtime()
         
-        params_local = np.zeros([nz, ny, 2], dtype=np.float64)
-        line_da.scatterv([params, lengths, displacements, subarray],
-                [params_local, MPI.DOUBLE])
-        alpha = params_local[:, :, 0].copy()
-        beta = params_local[:, :, 1].copy()
-        alpha_d = gpuarray.to_gpu(alpha)
-        beta_d = gpuarray.to_gpu(beta)
+        if self.da.rank == 0: print 'Scattering faces: ', t2-t1
+
+        alpha_d = x_R_faces_d[0, :, :].copy()
+        beta_d = x_R_faces_d[1, :, :].copy()
         return alpha_d, beta_d
         
     def solve_secondary_systems(self, line_da):
@@ -187,7 +255,7 @@ class CompactFiniteDifferenceSolver:
         return x_UH_d, x_LH_d
 
     def setup_reduced_solver(self, line_da):
-       return PThomas((line_da.nz, line_da.ny, 2*line_da.npx))
+       return ReducedSolver((2*line_da.npx, line_da.nz, line_da.ny))
 
     def setup_primary_solver(self, line_da):
         line_rank = line_da.rank

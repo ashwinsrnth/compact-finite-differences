@@ -3,6 +3,7 @@ import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
 import numpy as np
 import sys
+sys.path.append('../../../code/cuda')
 from near_toeplitz import *
 from scipy.linalg import solve_banded
 from numpy.testing import assert_allclose

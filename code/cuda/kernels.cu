@@ -84,17 +84,17 @@ __global__ void negateAndCopyFaces( double* x,
     /*
     Negate and 
     copy the left and right face from the logically [nz, ny, nx] array x
-    to a logically [nz, ny, 2] array x_faces 
+    to a logically [2, nz, ny] array x_faces 
     */
 
-    int iy = blockIdx.y*blockDim.y + threadIdx.y;
-    int iz = blockIdx.z*blockDim.z + threadIdx.z;
+    int iy = blockIdx.x*blockDim.x + threadIdx.x;
+    int iz = blockIdx.y*blockDim.y + threadIdx.y;
 
     int i_source;
     int i_dest;
     
     i_source = iz*(nx*ny) + iy*nx + 0;
-    i_dest = iz*(2*ny) + iy*2 + 0;
+    i_dest = 0 + iz*ny + iy;
     
     x_faces[i_dest] = -x[i_source];
 
@@ -103,12 +103,44 @@ __global__ void negateAndCopyFaces( double* x,
     }
 
     i_source = iz*(nx*ny) + iy*nx + nx-1;
-    i_dest = iz*(2*ny) + iy*2 + 1;
+    i_dest = nz*ny + iz*ny + iy;
     
     x_faces[i_dest] = -x[i_source];
     
     if (mx == npx-1) {
         x_faces[i_dest] = 0.0;        
+    }
+}
+
+__global__ void reducedSolverKernel(double *a_d,
+                                    double *b_d,
+                                    double *c_d,
+                                    double *c2_d,
+                                    double *d_d,
+                                    int nx,
+                                    int ny,
+                                    int nz) {
+    int gix = blockIdx.x*blockDim.x + threadIdx.x;
+    int giy = blockIdx.y*blockDim.y + threadIdx.y;
+    int block_start = giy*(nx) + gix;
+    int stride = nx*ny;
+    double bmac;
+
+    /* do a serial TDMA on the local system */
+
+    c2_d[0] = c_d[0]/b_d[0]; // we need c2_d, because every thread will overwrite c_d[0] otherwise
+    d_d[block_start] = d_d[block_start]/b_d[0];
+
+    for (int i=1; i<nz; i++)
+    {
+        bmac = b_d[i] - a_d[i]*c2_d[i-1];
+        c2_d[i] = c_d[i]/bmac;
+        d_d[block_start+i*stride] = (d_d[block_start+i*stride] - a_d[i]*d_d[block_start+(i-1)*stride])/bmac;
+    }
+
+    for (int i=nz-2; i >= 0; i--)
+    {
+        d_d[block_start+i*stride] = d_d[block_start+i*stride] - c2_d[i]*d_d[block_start+(i+1)*stride];
     }
 }
 
