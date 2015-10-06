@@ -44,9 +44,9 @@ class DA:
             out (pycuda.gpuarray.GPUArray):
                 an array sized (nz, ny, nx)
         """
-        return gpuarray.zeros((self.nz+2*self.stencil_width,
-            self.ny+2*self.stencil_width,
-            self.nx+2*self.stencil_width), dtype=np.float64)
+        return gpuarray.zeros((self.nz,
+            self.ny,
+            self.nx), dtype=np.float64)
 
     def create_local_vector(self):
         """
@@ -74,13 +74,14 @@ class DA:
 
         # copy from arrays to send halos:
         self._copy_array_to_halo(global_array, self.left_send_halo, [nz, ny, sw], [0, 0, 0])
-        self._copy_array_to_halo(global_array, self.right_send_halo, [nz, ny, sw], [0, 0, nx-1])
+        self._copy_array_to_halo(global_array, self.right_send_halo, [nz, ny, sw], [0, 0, nx-sw])
 
         self._copy_array_to_halo(global_array, self.bottom_send_halo, [nz, sw, nx], [0, 0, 0])
-        self._copy_array_to_halo(global_array, self.top_send_halo, [nz, sw, nx], [0, ny-1, 0])
-
+        self._copy_array_to_halo(global_array, self.top_send_halo, [nz, sw, nx], [0, ny-sw, 0])
+        
+        print global_array.shape, self.front_send_halo.shape
         self._copy_array_to_halo(global_array, self.front_send_halo, [sw, ny, nx], [0, 0, 0])
-        self._copy_array_to_halo(global_array, self.back_send_halo, [sw, ny, nx], [nz-1, 0, 0])
+        self._copy_array_to_halo(global_array, self.back_send_halo, [sw, ny, nx], [nz-sw, 0, 0])
 
         # perform swaps in x-direction
         sendbuf = [self.right_send_halo.gpudata.as_buffer(self.right_send_halo.nbytes), MPI.DOUBLE]
@@ -226,17 +227,17 @@ class DA:
         # the halo values to send, and the other holding
         # the halo values to receive.
 
-        self.left_recv_halo = gpuarray.empty([nz,ny,sw], dtype=np.float64)
+        self.left_recv_halo = gpuarray.empty([nz, ny, sw], dtype=np.float64)
         self.left_send_halo = self.left_recv_halo.copy()
         self.right_recv_halo = self.left_recv_halo.copy()
         self.right_send_halo = self.left_recv_halo.copy()
     
-        self.bottom_recv_halo = gpuarray.empty([nz,sw,nx], dtype=np.float64)
+        self.bottom_recv_halo = gpuarray.empty([nz, sw, nx], dtype=np.float64)
         self.bottom_send_halo = self.bottom_recv_halo.copy()
         self.top_recv_halo = self.bottom_recv_halo.copy()
         self.top_send_halo = self.bottom_recv_halo.copy()
 
-        self.back_recv_halo = gpuarray.empty([sw,ny,nx], dtype=np.float64)
+        self.back_recv_halo = gpuarray.empty([sw, ny, nx], dtype=np.float64)
         self.back_send_halo = self.back_recv_halo.copy()
         self.front_recv_halo = self.back_recv_halo.copy()
         self.front_send_halo = self.back_recv_halo.copy()
