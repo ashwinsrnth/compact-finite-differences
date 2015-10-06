@@ -11,5 +11,5 @@ class PThomas:
     
     def solve(self, a_d, b_d, c_d, c2_d, x_d):
         self.pThomas.prepare([np.intp, np.intp, np.intp, np.intp, np.intp, np.intc])
-        self.pThomas.prepared_call((self.nz*self.ny, 1, 1), (self.nx, 1, 1),
+        self.pThomas.prepared_call((self.nz*self.ny, 1, 1), (1, 1, 1),
              a_d.gpudata, b_d.gpudata, c_d.gpudata, c2_d.gpudata, x_d.gpudata, np.int32(self.nx))

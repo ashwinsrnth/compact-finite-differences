@@ -119,7 +119,6 @@ class CompactFiniteDifferenceSolver:
                     np.int32(nx), np.int32(ny), np.int32(nz),
                         np.int32(line_da.mx), np.int32(line_da.npx))
 
-        #x_R_faces = x_R_faces_d.get()
         x_R_faces_line_d = gpuarray.zeros((nz, ny, 2*line_size), dtype=np.float64)
         line_da.gatherv([x_R_faces_d.gpudata.as_buffer(x_R_faces_d.nbytes), MPI.DOUBLE],
                 [x_R_faces_line_d.gpudata.as_buffer(x_R_faces_line_d.nbytes), lengths, displacements, subarray])

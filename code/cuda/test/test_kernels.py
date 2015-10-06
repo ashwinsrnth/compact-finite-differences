@@ -27,9 +27,9 @@ def scipy_solve_banded(a, b, c, rhs):
     return x
 
 def test_pthomas():
-    nz = 3
-    ny = 4
-    nx = 5
+    nz = 2
+    ny = 2
+    nx = 32
 
     a = np.random.rand(nx)
     b = np.random.rand(nx)

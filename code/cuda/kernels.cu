@@ -1,5 +1,4 @@
 #include <cuda.h>
-
 extern "C" {
 
 __global__ void computeRHS(const double *f_local_d,
