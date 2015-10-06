@@ -79,7 +79,6 @@ class DA:
         self._copy_array_to_halo(global_array, self.bottom_send_halo, [nz, sw, nx], [0, 0, 0])
         self._copy_array_to_halo(global_array, self.top_send_halo, [nz, sw, nx], [0, ny-sw, 0])
         
-        print global_array.shape, self.front_send_halo.shape
         self._copy_array_to_halo(global_array, self.front_send_halo, [sw, ny, nx], [0, 0, 0])
         self._copy_array_to_halo(global_array, self.back_send_halo, [sw, ny, nx], [nz-sw, 0, 0])
 

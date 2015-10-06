@@ -1,8 +1,8 @@
 import pyopencl as cl
+import sys
+sys.path.append('../../../code/ocl')
 import pyopencl.array as cl_array
 import numpy as np
-import sys
-sys.path.append('../../../code')
 from near_toeplitz import *
 from scipy.linalg import solve_banded
 from numpy.testing import assert_allclose
