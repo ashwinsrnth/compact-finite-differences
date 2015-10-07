@@ -5,9 +5,9 @@ from mpi4py import MPI
 from gpuDA import *
 from compact import CompactFiniteDifferenceSolver
 import sys
-from pycuda import autoinit
 import pycuda.gpuarray as gpuarray
 import pycuda.driver as cuda
+import pycuda_init
 
 args = sys.argv
 
@@ -26,18 +26,13 @@ dx = x[0, 0, 1] - x[0, 0, 0]
 
 cfd = CompactFiniteDifferenceSolver(da)
 
-start = cuda.Event()
-end = cuda.Event()
+f_d = gpuarray.to_gpu(f)
+x_d = gpuarray.zeros_like(f_d)
 
 for i in range(10):
-    f_d = gpuarray.to_gpu(f)
-    start.record()
-    dfdx_d = cfd.dfdx(f_d, dx)
-    end.record()
+    t1 = MPI.Wtime()
+    cfd.dfdx(f_d, dx, x_d)
+    cuda.Context.synchronize()
     comm.Barrier()
-    end.synchronize()
-    
-    if rank == 0:
-        print start.time_till(end)*1e-3
-
-MPI.Finalize()
+    t2 = MPI.Wtime()
+    if rank == 0: print 'Total: ', t2-t1

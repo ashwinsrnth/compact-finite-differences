@@ -1,5 +1,4 @@
 from mpi4py import MPI
-from pycuda import autoinit
 import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
 import numpy as np
@@ -8,85 +7,33 @@ import kernels
 from near_toeplitz import *
 from reduced import *
 from gpuDA import *
+from timer import timeit
 
 class CompactFiniteDifferenceSolver:
 
-    def __init__(self, da, use_gpu=False):
+    def __init__(self, da):
         '''
         :param da: DA object carrying the grid information
         :type da: mpi_util.DA
-        :param use_gpu: set True if using GPU
-        :type use_gpu: bool
         '''
         self.da = da
-        self.use_gpu = use_gpu
         self.init_cu()
         self.init_solvers()
-
-    def dfdx(self, f_d, dx):
+    
+    def dfdx(self, f_d, dx, x_d):
         '''
-        :param f: The 3-d array with function values
-        :type f: numpy.ndarray
+        :param f_d: The 3-d array with function values
+        :type f_d: GPUArray
         :param dx: Spacing in x-direction
         :type dx: float
+        :param x_d: Space for solution
+        :type x_d: GPUArray
         '''
-        start = cuda.Event()
-        end = cuda.Event()
-        self.da.comm.Barrier()
-        t1 = MPI.Wtime()
-        start.record()
-        
-        r_d = self.compute_RHS(self.x_line_da, f_d, dx)
-        
-        end.record()
-        end.synchronize()
-        self.da.comm.Barrier()
-        t2 = MPI.Wtime()
-        if self.da.rank == 0: print 'RHS: ', t2-t1 
-        
+        self.compute_RHS(self.x_line_da, f_d, dx, x_d)
         x_UH_d, x_LH_d = self.solve_secondary_systems(self.x_line_da)
-
-        self.da.comm.Barrier()
-        t1 = MPI.Wtime()
-        start.record()
-        
-        self.x_primary_solver.solve(r_d, [1, 1])
-        
-        end.record()
-        end.synchronize()
-        self.da.comm.Barrier()
-        t2 = MPI.Wtime()
-        
-        if self.da.rank == 0: print 'Primary: ', t2-t1 
-        
-        self.da.comm.Barrier()
-        t1 = MPI.Wtime()
-        start.record()
-
-        alpha_d, beta_d = self.solve_reduced_system(self.x_line_da, x_UH_d, x_LH_d, r_d, self.x_reduced_solver)
-
-        end.record()
-        end.synchronize()
-        self.da.comm.Barrier()
-        t2 = MPI.Wtime()
-
-        if self.da.rank == 0: print 'Reduced: ', t2-t1 
-
-        self.da.comm.Barrier()
-        t1 = MPI.Wtime()
-        start.record()
-
-        self.sum_solutions(self.x_line_da, x_UH_d, x_LH_d, r_d, alpha_d, beta_d)
-
-        end.record()
-        end.synchronize()
-        self.da.comm.Barrier()
-        t2 = MPI.Wtime()
-
-        if self.da.rank == 0: print 'Sum: ', t2-t1 
-        #dfdx = r_d.get()
-        return r_d
-
+        self.solve_primary_system(x_d, self.x_primary_solver)
+        alpha_d, beta_d = self.solve_reduced_system(self.x_line_da, x_UH_d, x_LH_d, x_d, self.x_reduced_solver)
+        self.sum_solutions(self.x_line_da, x_UH_d, x_LH_d, x_d, alpha_d, beta_d)
     ''' 
     def dfdy(self, f, dy):
         f_T = f.transpose(0, 2, 1).copy()
@@ -111,17 +58,18 @@ class CompactFiniteDifferenceSolver:
         return dfdz
     '''
 
-    def compute_RHS(self, line_da, f_d, dx):
+    @timeit
+    def compute_RHS(self, line_da, f_d, dx, x_d):
         f_local_d = line_da.create_local_vector()
-        line_da.global_to_local(f_d, f_local_d)
-        x_d = gpuarray.zeros((line_da.nz, line_da.ny, line_da.nx),
-                dtype=np.float64)
-        self.compute_RHS_kernel.prepare([np.intp, np.intp, np.float64, np.intc, np.intc])
-        self.compute_RHS_kernel.prepared_call((line_da.nx/8, line_da.ny/8, line_da.nz/8), (8, 8, 8),
-                    f_local_d.gpudata, x_d.gpudata, np.float64(dx),
-                        np.int32(line_da.rank), np.int32(line_da.size))
-        return x_d
-    
+        #line_da.global_to_local(f_d, f_local_d)
+        #self.compute_RHS_kernel.prepare([np.intp, np.intp, np.float64, np.intc, np.intc])
+        #self.compute_RHS_kernel.prepared_call((line_da.nx/8, line_da.ny/8, line_da.nz/8), (8, 8, 8),
+        #            f_local_d.gpudata, x_d.gpudata, np.float64(dx),
+        #                np.int32(line_da.rank), np.int32(line_da.size))
+        #cuda.Context.synchronize()
+        #line_da.comm.Barrier()
+        
+    @timeit
     def sum_solutions(self, line_da, x_UH_d, x_LH_d, x_R_d, alpha_d, beta_d):
         self.sum_solutions_kernel.prepare([np.intp, np.intp,
                 np.intp, np.intp, np.intp,
@@ -134,7 +82,11 @@ class CompactFiniteDifferenceSolver:
                             np.int32(line_da.nx),
                             np.int32(line_da.ny),
                             np.int32(line_da.nz))
+    @timeit
+    def solve_primary_system(self, x_d, solver):
+        solver.solve(x_d, [1, 1])
 
+    @timeit
     def solve_reduced_system(self, line_da, x_UH_d, x_LH_d, x_R_d, reduced_solver):
         x_UH = x_UH_d.get()
         x_LH = x_LH_d.get()
@@ -163,23 +115,10 @@ class CompactFiniteDifferenceSolver:
                     np.int32(nx), np.int32(ny), np.int32(nz),
                         np.int32(line_da.mx), np.int32(line_da.npx))
 
-        start = cuda.Event()
-        end = cuda.Event()
         x_R_faces_line_d = gpuarray.zeros((2*line_size, nz, ny), dtype=np.float64)
-        self.da.comm.Barrier()
-        t1 = MPI.Wtime()
-        start.record()
-
         line_da.gather([x_R_faces_d.gpudata.as_buffer(x_R_faces_d.nbytes), 2*nz*ny, MPI.DOUBLE],
                 [x_R_faces_line_d.gpudata.as_buffer(x_R_faces_line_d.nbytes), 2*nz*ny, MPI.DOUBLE])
         
-        end.record()
-        end.synchronize()
-        self.da.comm.Barrier()
-        t2 = MPI.Wtime()
-
-        if self.da.rank == 0: print 'Gathering faces: ', t2-t1 
-
         if line_rank == 0:
             a_reduced = np.zeros(2*line_size, dtype=np.float64)
             b_reduced = np.zeros(2*line_size, dtype=np.float64)
@@ -204,28 +143,14 @@ class CompactFiniteDifferenceSolver:
             reduced_solver.solve(a_reduced_d, b_reduced_d,
                     c_reduced_d, c2_reduced_d, x_R_faces_line_d)
 
-
-        start = cuda.Event()
-        end = cuda.Event()
-        x_R_faces_line_d = gpuarray.zeros((2*line_size, nz, ny), dtype=np.float64)
-        self.da.comm.Barrier()
-        t1 = MPI.Wtime()
-        start.record()
-
         line_da.scatter([x_R_faces_line_d.gpudata.as_buffer(x_R_faces_line_d.nbytes), 2*nz*ny, MPI.DOUBLE],
                 [x_R_faces_d.gpudata.as_buffer(x_R_faces_d.nbytes), 2*nz*ny, MPI.DOUBLE])
 
-        end.record()
-        end.synchronize()
-        self.da.comm.Barrier()
-        t2 = MPI.Wtime()
-        
-        if self.da.rank == 0: print 'Scattering faces: ', t2-t1
-
-        alpha_d = x_R_faces_d[0, :, :].copy()
-        beta_d = x_R_faces_d[1, :, :].copy()
+        alpha_d = x_R_faces_d[0, :, :]
+        beta_d = x_R_faces_d[1, :, :]
         return alpha_d, beta_d
-        
+   
+    @timeit
     def solve_secondary_systems(self, line_da):
         nz, ny, nx = line_da.nz, line_da.ny, line_da.nx
         line_rank = line_da.rank
