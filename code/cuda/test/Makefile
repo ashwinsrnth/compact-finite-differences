@@ -7,6 +7,8 @@ phony:
 	@echo
 test_compact:
 	mpiexec ${MPIEXECFLAGS} -n 8 python test_compact.py
+test_convergence:
+	mpiexec ${MPIEXECFLAGS} -n 8 python test_convergence.py
 demo:
 	mpiexec ${MPIEXECFLAGS} -n 8 python demo.py
 clean:
