@@ -27,11 +27,14 @@ dx = x[0, 0, 1] - x[0, 0, 0]
 cfd = CompactFiniteDifferenceSolver(da)
 
 f_d = gpuarray.to_gpu(f)
-x_d = gpuarray.zeros_like(f_d)
+f_local_d = da.create_local_vector()
+x_d = da.create_global_vector()
+
+print f_d.shape
 
 for i in range(10):
     t1 = MPI.Wtime()
-    cfd.dfdx(f_d, dx, x_d)
+    cfd.dfdx(f_d, dx, x_d, f_local_d)
     cuda.Context.synchronize()
     comm.Barrier()
     t2 = MPI.Wtime()

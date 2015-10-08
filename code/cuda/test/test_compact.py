@@ -18,10 +18,12 @@ def test_dfdx_sine_regular():
     x, y, z = DA_arange(da_regular, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
     f = np.sin(x) 
     f_d = gpuarray.to_gpu(f)
+    x_d = da_regular.create_global_vector()
+    f_local_d = da_regular.create_local_vector()
     dfdx_true = np.cos(x) 
     dx = x[0, 0, 1] - x[0, 0, 0]
-    dfdx_d = cfd_regular.dfdx(f_d, dx)
-    dfdx = dfdx_d.get()
+    cfd_regular.dfdx(f_d, dx, x_d, f_local_d)
+    dfdx = x_d.get()
     assert_almost_equal(dfdx_true, dfdx, decimal=2)
     if comm.Get_rank() == 0:
         print 'pass'
@@ -30,10 +32,12 @@ def test_dfdx_sine_irregular():
     x, y, z = DA_arange(da_irregular, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
     f = np.sin(x) 
     f_d = gpuarray.to_gpu(f)
+    x_d = da_irregular.create_global_vector()
+    f_local_d = da_irregular.create_local_vector()
     dfdx_true = np.cos(x) 
     dx = x[0, 0, 1] - x[0, 0, 0]
-    dfdx_d = cfd_irregular.dfdx(f_d, dx)
-    dfdx = dfdx_d.get()
+    cfd_irregular.dfdx(f_d, dx, x_d, f_local_d)
+    dfdx = x_d.get()
     assert_almost_equal(dfdx_true, dfdx, decimal=2)
     if comm.Get_rank() == 0:
         print 'pass'
@@ -42,10 +46,12 @@ def test_dfdx_xyz():
     x, y, z = DA_arange(da_irregular, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
     f = x*y*z
     f_d = gpuarray.to_gpu(f)
+    x_d = da_irregular.create_global_vector()
+    f_local_d = da_irregular.create_local_vector()
     dfdx_true = y*z
     dx = x[0, 0, 1] - x[0, 0, 0]
-    dfdx_d = cfd_irregular.dfdx(f_d, dx)
-    dfdx = dfdx_d.get()
+    cfd_irregular.dfdx(f_d, dx, x_d, f_local_d)
+    dfdx = x_d.get()
     assert_almost_equal(dfdx_true, dfdx, decimal=2)
     if comm.Get_rank() == 0:
         print 'pass'

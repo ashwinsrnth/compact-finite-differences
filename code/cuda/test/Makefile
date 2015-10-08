@@ -1,4 +1,4 @@
-
+export MPIEXECFLAGS=--mca pml ob1
 phony:
 	@echo
 	@echo Make can be run with the following targets
