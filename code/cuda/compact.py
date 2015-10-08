@@ -20,7 +20,7 @@ class CompactFiniteDifferenceSolver:
         self.init_cu()
         self.init_solvers()
     
-    def dfdx(self, f_d, dx, x_d):
+    def dfdx(self, f_d, dx, x_d, f_local_d):
         '''
         :param f_d: The 3-d array with function values
         :type f_d: GPUArray
@@ -28,8 +28,10 @@ class CompactFiniteDifferenceSolver:
         :type dx: float
         :param x_d: Space for solution
         :type x_d: GPUArray
+        :param f_local_d: Space for function values and ghost elements
+        :type f_local_d: GPUArray
         '''
-        self.compute_RHS(self.x_line_da, f_d, dx, x_d)
+        self.compute_RHS(self.x_line_da, f_d, dx, x_d, f_local_d)
         x_UH_d, x_LH_d = self.solve_secondary_systems(self.x_line_da)
         self.solve_primary_system(x_d, self.x_primary_solver)
         alpha_d, beta_d = self.solve_reduced_system(self.x_line_da, x_UH_d, x_LH_d, x_d, self.x_reduced_solver)
@@ -59,16 +61,13 @@ class CompactFiniteDifferenceSolver:
     '''
 
     @timeit
-    def compute_RHS(self, line_da, f_d, dx, x_d):
-        f_local_d = line_da.create_local_vector()
-        #line_da.global_to_local(f_d, f_local_d)
-        #self.compute_RHS_kernel.prepare([np.intp, np.intp, np.float64, np.intc, np.intc])
-        #self.compute_RHS_kernel.prepared_call((line_da.nx/8, line_da.ny/8, line_da.nz/8), (8, 8, 8),
-        #            f_local_d.gpudata, x_d.gpudata, np.float64(dx),
-        #                np.int32(line_da.rank), np.int32(line_da.size))
-        #cuda.Context.synchronize()
-        #line_da.comm.Barrier()
-        
+    def compute_RHS(self, line_da, f_d, dx, x_d, f_local_d):
+        line_da.global_to_local(f_d, f_local_d)
+        self.compute_RHS_kernel.prepare([np.intp, np.intp, np.float64, np.intc, np.intc])
+        self.compute_RHS_kernel.prepared_call((line_da.nx/8, line_da.ny/8, line_da.nz/8), (8, 8, 8),
+                    f_local_d.gpudata, x_d.gpudata, np.float64(dx),
+                        np.int32(line_da.rank), np.int32(line_da.size))
+
     @timeit
     def sum_solutions(self, line_da, x_UH_d, x_LH_d, x_R_d, alpha_d, beta_d):
         self.sum_solutions_kernel.prepare([np.intp, np.intp,

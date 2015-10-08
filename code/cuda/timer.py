@@ -11,6 +11,6 @@ def timeit(func):
         cuda.Context.synchronize()
         comm.Barrier()
         t2 = MPI.Wtime()
-        if rank == 0: print rank, func.__name__, ': ',t2-t1
+        if rank == 0: print func.__name__, ': ',t2-t1
         return result 
     return func_wrapper
