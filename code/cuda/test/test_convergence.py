@@ -1,3 +1,12 @@
+# Order of convergence test:
+# The interior operator itself yields 4th order
+# accuracy, and the boundary operator
+# is third order accurate.
+# The fourth order convergence
+# of the numerical method is still preserved,
+# unless the boundaries are a primary source of
+# error
+
 import sys
 sys.path.append('..')
 import numpy as np

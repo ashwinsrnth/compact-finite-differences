@@ -122,25 +122,25 @@ __global__ void reducedSolverKernel(double *a_d,
                                     int nz) {
     int gix = blockIdx.x*blockDim.x + threadIdx.x;
     int giy = blockIdx.y*blockDim.y + threadIdx.y;
-    int block_start = giy*(nx) + gix;
+    int start = giy*(nx) + gix;
     int stride = nx*ny;
     double bmac;
 
     /* do a serial TDMA on the local system */
 
     c2_d[0] = c_d[0]/b_d[0]; // we need c2_d, because every thread will overwrite c_d[0] otherwise
-    d_d[block_start] = d_d[block_start]/b_d[0];
+    d_d[start] = d_d[start]/b_d[0];
 
     for (int i=1; i<nz; i++)
     {
         bmac = b_d[i] - a_d[i]*c2_d[i-1];
         c2_d[i] = c_d[i]/bmac;
-        d_d[block_start+i*stride] = (d_d[block_start+i*stride] - a_d[i]*d_d[block_start+(i-1)*stride])/bmac;
+        d_d[start+i*stride] = (d_d[start+i*stride] - a_d[i]*d_d[start+(i-1)*stride])/bmac;
     }
 
     for (int i=nz-2; i >= 0; i--)
     {
-        d_d[block_start+i*stride] = d_d[block_start+i*stride] - c2_d[i]*d_d[block_start+(i+1)*stride];
+        d_d[start+i*stride] = d_d[start+i*stride] - c2_d[i]*d_d[start+(i+1)*stride];
     }
 }
 
