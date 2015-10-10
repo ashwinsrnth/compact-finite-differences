@@ -7,19 +7,35 @@ import kernels
 from near_toeplitz import *
 from reduced import *
 from gpuDA import *
-from timer import timeit
+import time
 
 class CompactFiniteDifferenceSolver:
 
-    def __init__(self, da):
+    def __init__(self, line_da):
         '''
-        :param da: DA object carrying the grid information
+        :param da: DA object carrying the grid information along
+            the line
         :type da: mpi_util.DA
         '''
-        self.da = da
+        self.line_da = line_da
         self.init_cu()
         self.init_solvers()
-    
+
+    def _timeit(func):
+        def func_wrapper(self, *args, **kwargs):
+            self.line_da.comm.Barrier()
+            t1 = MPI.Wtime()
+            self.start.record()
+            self.start.synchronize()
+            result = func(self, *args, **kwargs)
+            self.end.record()
+            self.end.synchronize()
+            self.line_da.comm.Barrier()
+            t2 = MPI.Wtime()
+            if self.line_da.rank == 0: print func.__name__, ': ',t2-t1
+            return result 
+        return func_wrapper
+        
     def dfdx(self, f_d, dx, x_d, f_local_d):
         '''
         :param f_d: The 3-d array with function values
@@ -31,93 +47,61 @@ class CompactFiniteDifferenceSolver:
         :param f_local_d: Space for function values and ghost elements
         :type f_local_d: GPUArray
         '''
-        self.compute_RHS(self.x_line_da, f_d, dx, x_d, f_local_d)
-        x_UH_d, x_LH_d = self.solve_secondary_systems(self.x_line_da)
-        self.solve_primary_system(x_d, self.x_primary_solver)
-        alpha_d, beta_d = self.solve_reduced_system(self.x_line_da, x_UH_d, x_LH_d, x_d, self.x_reduced_solver)
-        self.sum_solutions(self.x_line_da, x_UH_d, x_LH_d, x_d, alpha_d, beta_d)
-    ''' 
-    def dfdy(self, f, dy):
-        f_T = f.transpose(0, 2, 1).copy()
-        r_d = self.compute_RHS(self.y_line_da, f_T, dy)
-        x_UH, x_LH = self.solve_secondary_systems(self.y_line_da)
-        self.y_primary_solver.solve(r_d, [1, 1])
-        alpha, beta = self.solve_reduced_system(self.y_line_da, x_UH, x_LH, r_d, self.y_reduced_solver)
-        self.sum_solutions(self.y_line_da, r_d, x_UH, x_LH, alpha, beta)
-        dfdy = r_d.get()
-        dfdy = dfdy.transpose(0, 2, 1).copy()
-        return dfdy 
+        self.compute_RHS(f_d, dx, x_d, f_local_d)
+        x_UH_d, x_LH_d = self.solve_secondary_systems()
+        self.solve_primary_system(x_d)
+        alpha_d, beta_d = self.solve_reduced_system(x_UH_d, x_LH_d, x_d)
+        self.sum_solutions(x_UH_d, x_LH_d, x_d, alpha_d, beta_d)
 
-    def dfdz(self, f, dz):
-        f_T = f.transpose(1, 2, 0).copy()
-        r_d = self.compute_RHS(self.z_line_da, f_T, dz)
-        x_UH, x_LH = self.solve_secondary_systems(self.z_line_da)
-        self.z_primary_solver.solve(r_d, [1, 1])
-        alpha, beta = self.solve_reduced_system(self.z_line_da, x_UH, x_LH, r_d, self.z_reduced_solver)
-        self.sum_solutions(self.z_line_da, r_d, x_UH, x_LH, alpha, beta)
-        dfdz = r_d.get()
-        dfdz = dfdz.transpose(2, 0, 1).copy()
-        return dfdz
-    '''
-
-    @timeit
-    def compute_RHS(self, line_da, f_d, dx, x_d, f_local_d):
-        line_da.global_to_local(f_d, f_local_d)
-        self.compute_RHS_kernel.prepare([np.intp, np.intp, np.float64, np.intc, np.intc])
-        self.compute_RHS_kernel.prepared_call((line_da.nx/8, line_da.ny/8, line_da.nz/8), (8, 8, 8),
+    def compute_RHS(self, f_d, dx, x_d, f_local_d):
+        self.line_da.global_to_local(f_d, f_local_d)
+        self.compute_RHS_kernel.prepared_call((self.line_da.nx/8, self.line_da.ny/8, self.line_da.nz/8), (8, 8, 8),
                     f_local_d.gpudata, x_d.gpudata, np.float64(dx),
-                        np.int32(line_da.rank), np.int32(line_da.size))
+                        np.int32(self.line_da.rank), np.int32(self.line_da.size))
 
-    @timeit
-    def sum_solutions(self, line_da, x_UH_d, x_LH_d, x_R_d, alpha_d, beta_d):
-        self.sum_solutions_kernel.prepare([np.intp, np.intp,
-                np.intp, np.intp, np.intp,
-                    np.intc, np.intc, np.intc])
+    def sum_solutions(self, x_UH_d, x_LH_d, x_R_d, alpha_d, beta_d):
         self.sum_solutions_kernel.prepared_call(
-                (line_da.nx/8, line_da.ny/8, line_da.nz/8),
+                (self.line_da.nx/8, self.line_da.ny/8, self.line_da.nz/8),
                     (8, 8, 8),
                         x_R_d.gpudata, x_UH_d.gpudata,
                         x_LH_d.gpudata, alpha_d.gpudata, beta_d.gpudata,
-                            np.int32(line_da.nx),
-                            np.int32(line_da.ny),
-                            np.int32(line_da.nz))
-    @timeit
-    def solve_primary_system(self, x_d, solver):
-        solver.solve(x_d, [1, 1])
+                            np.int32(self.line_da.nx),
+                            np.int32(self.line_da.ny),
+                            np.int32(self.line_da.nz))
 
-    @timeit
-    def solve_reduced_system(self, line_da, x_UH_d, x_LH_d, x_R_d, reduced_solver):
+    def solve_primary_system(self, x_d):
+        self._primary_solver.solve(x_d, [1, 1])
+    
+    def solve_reduced_system(self, x_UH_d, x_LH_d, x_R_d):
         x_UH = x_UH_d.get()
         x_LH = x_LH_d.get()
 
-        nz, ny, nx = line_da.nz, line_da.ny, line_da.nx
-        line_rank = line_da.rank
-        line_size = line_da.size
+        nz, ny, nx = self.line_da.nz, self.line_da.ny, self.line_da.nx
+        line_rank = self.line_da.rank
+        line_size = self.line_da.size
         
         x_UH_line = np.zeros(2*line_size, dtype=np.float64)
         x_LH_line = np.zeros(2*line_size, dtype=np.float64)
 
-        line_da.gather(
+        self.line_da.gather(
                 [np.array([x_UH[0], x_UH[-1]]), 2, MPI.DOUBLE],
                 [x_UH_line, 2, MPI.DOUBLE])
-        line_da.gather(
+        self.line_da.gather(
                 [np.array([x_LH[0], x_LH[-1]]), 2, MPI.DOUBLE],
                 [x_LH_line, 2, MPI.DOUBLE])
 
         
         x_R_faces_d = gpuarray.zeros((2, nz, ny), np.float64)
-        self.copy_faces_kernel.prepare([np.intp, np.intp,
-            np.intc, np.intc, np.intc, np.intc, np.intc])
-
+        
         self.copy_faces_kernel.prepared_call((ny/16, nz/16, 1), (16, 16, 1),
                 x_R_d.gpudata, x_R_faces_d.gpudata,
                     np.int32(nx), np.int32(ny), np.int32(nz),
-                        np.int32(line_da.mx), np.int32(line_da.npx))
-
+                        np.int32(self.line_da.mx), np.int32(self.line_da.npx))
         x_R_faces_line_d = gpuarray.zeros((2*line_size, nz, ny), dtype=np.float64)
-        line_da.gather([x_R_faces_d.gpudata.as_buffer(x_R_faces_d.nbytes), 2*nz*ny, MPI.DOUBLE],
+
+        self.line_da.gather([x_R_faces_d.gpudata.as_buffer(x_R_faces_d.nbytes), 2*nz*ny, MPI.DOUBLE],
                 [x_R_faces_line_d.gpudata.as_buffer(x_R_faces_line_d.nbytes), 2*nz*ny, MPI.DOUBLE])
-        
+
         if line_rank == 0:
             a_reduced = np.zeros(2*line_size, dtype=np.float64)
             b_reduced = np.zeros(2*line_size, dtype=np.float64)
@@ -134,26 +118,26 @@ class CompactFiniteDifferenceSolver:
             b_reduced[-1] = 1.0
             a_reduced[1] = 0.
             c_reduced[-2] = 0.
+
             a_reduced_d = gpuarray.to_gpu(a_reduced)
             b_reduced_d = gpuarray.to_gpu(b_reduced)
             c_reduced_d = gpuarray.to_gpu(c_reduced)
             c2_reduced_d = gpuarray.to_gpu(c_reduced)
 
-            reduced_solver.solve(a_reduced_d, b_reduced_d,
+            self._reduced_solver.solve(a_reduced_d, b_reduced_d,
                     c_reduced_d, c2_reduced_d, x_R_faces_line_d)
 
-        line_da.scatter([x_R_faces_line_d.gpudata.as_buffer(x_R_faces_line_d.nbytes), 2*nz*ny, MPI.DOUBLE],
+        self.line_da.scatter([x_R_faces_line_d.gpudata.as_buffer(x_R_faces_line_d.nbytes), 2*nz*ny, MPI.DOUBLE],
                 [x_R_faces_d.gpudata.as_buffer(x_R_faces_d.nbytes), 2*nz*ny, MPI.DOUBLE])
 
         alpha_d = x_R_faces_d[0, :, :]
         beta_d = x_R_faces_d[1, :, :]
         return alpha_d, beta_d
    
-    @timeit
-    def solve_secondary_systems(self, line_da):
-        nz, ny, nx = line_da.nz, line_da.ny, line_da.nx
-        line_rank = line_da.rank
-        line_size = line_da.size
+    def solve_secondary_systems(self):
+        nz, ny, nx = self.line_da.nz, self.line_da.ny, self.line_da.nx
+        line_rank = self.line_da.rank
+        line_size = self.line_da.size
 
         a = np.ones(nx, dtype=np.float64)*(1./4)
         b = np.ones(nx, dtype=np.float64)
@@ -178,33 +162,35 @@ class CompactFiniteDifferenceSolver:
         x_LH_d = gpuarray.to_gpu(x_LH)
         return x_UH_d, x_LH_d
 
-    def setup_reduced_solver(self, line_da):
-       return ReducedSolver((2*line_da.npx, line_da.nz, line_da.ny))
+    def setup_reduced_solver(self):
+       return ReducedSolver((2*self.line_da.npx, self.line_da.nz, self.line_da.ny))
 
-    def setup_primary_solver(self, line_da):
-        line_rank = line_da.rank
-        line_size = line_da.size
+    def setup_primary_solver(self):
+        line_rank = self.line_da.rank
+        line_size = self.line_da.size
         coeffs = [1., 1./4, 1./4, 1., 1./4, 1./4, 1.]
         if line_rank == 0:
             coeffs[1] = 2.
         if line_rank == line_size-1:
             coeffs[-2] = 2.
-        return NearToeplitzSolver((line_da.nz, line_da.ny, line_da.nx), coeffs)
+        return NearToeplitzSolver((self.line_da.nz, self.line_da.ny, self.line_da.nx), coeffs)
 
     def init_cu(self):
         self.compute_RHS_kernel, self.sum_solutions_kernel, self.copy_faces_kernel, = kernels.get_funcs(
                 'kernels.cu', 'computeRHS', 'sumSolutions', 'negateAndCopyFaces')
-                 
+        self.compute_RHS_kernel.prepare([np.intp, np.intp, np.float64, np.intc, np.intc])
+        self.sum_solutions_kernel.prepare([np.intp, np.intp,
+                np.intp, np.intp, np.intp,
+                    np.intc, np.intc, np.intc])
+        self.copy_faces_kernel.prepare([np.intp, np.intp,
+            np.intc, np.intc, np.intc, np.intc, np.intc])
+
+        self.start = cuda.Event()
+        self.end = cuda.Event()
+
     def init_solvers(self):
-        self.x_line_da = self.da.get_line_DA(0)
-        self.y_line_da = self.da.get_line_DA(1)
-        self.z_line_da = self.da.get_line_DA(2)
-        self.x_primary_solver = self.setup_primary_solver(self.x_line_da)
-        self.y_primary_solver = self.setup_primary_solver(self.y_line_da)
-        self.z_primary_solver = self.setup_primary_solver(self.z_line_da)
-        self.x_reduced_solver = self.setup_reduced_solver(self.x_line_da)
-        self.y_reduced_solver = self.setup_reduced_solver(self.y_line_da)
-        self.z_reduced_solver = self.setup_reduced_solver(self.z_line_da)
+        self._primary_solver = self.setup_primary_solver()
+        self._reduced_solver = self.setup_reduced_solver()
 
 def scipy_solve_banded(a, b, c, rhs):
     '''

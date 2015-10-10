@@ -8,9 +8,11 @@ import sys
 import pycuda.gpuarray as gpuarray
 import pycuda.driver as cuda
 import pycuda_init
+import socket
+import time
+from numpy.testing import *
 
 args = sys.argv
-
 nz, ny, nx = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
 npz, npy, npx = int(sys.argv[4]), int(sys.argv[5]), int(sys.argv[6])
 
@@ -18,24 +20,30 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
 da = DA(comm, (nz, ny, nx), (npz, npy, npx), 1)
+line_da = da.get_line_DA(0)
+
 x, y, z = DA_arange(da, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
 f = x*np.cos(x*y) + np.sin(z)*y
 dfdx_true = -(x*y)*np.sin(x*y) + np.cos(x*y)
 
 dx = x[0, 0, 1] - x[0, 0, 0]
 
-cfd = CompactFiniteDifferenceSolver(da)
+cfd = CompactFiniteDifferenceSolver(line_da)
 
 f_d = gpuarray.to_gpu(f)
 f_local_d = da.create_local_vector()
 x_d = da.create_global_vector()
 
-print f_d.shape
+da.comm.Barrier()
 
-for i in range(10):
+for i in range(50):
+    f_d = gpuarray.to_gpu(f)
+    da.comm.Barrier()
     t1 = MPI.Wtime()
     cfd.dfdx(f_d, dx, x_d, f_local_d)
     cuda.Context.synchronize()
-    comm.Barrier()
+    da.comm.Barrier()
     t2 = MPI.Wtime()
-    if rank == 0: print 'Total: ', t2-t1
+    if rank == 0: print 'Total time: ', t2-t1
+    dfdx = x_d.get()
+

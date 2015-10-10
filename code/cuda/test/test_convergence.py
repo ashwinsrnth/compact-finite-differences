@@ -26,7 +26,8 @@ sizes = [16, 32, 64, 128, 256]
 
 for i, N in enumerate(sizes):
     da = DA(comm, (N, N, N), (2, 2, 2), 1)
-    cfd = CompactFiniteDifferenceSolver(da)
+    line_da = da.get_line_DA(0)
+    cfd = CompactFiniteDifferenceSolver(line_da)
     x, y, z = DA_arange(da, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
     f = np.sin(x) + np.cos(y*x) + z*x
     f_d = gpuarray.to_gpu(f)

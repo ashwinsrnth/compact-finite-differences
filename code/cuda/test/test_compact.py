@@ -10,9 +10,11 @@ import pycuda.gpuarray as gpuarray
 
 comm = MPI.COMM_WORLD 
 da_regular = DA(comm, (32, 32, 32), (2, 2, 2), 1)
+line_da_regular = da_regular.get_line_DA(0)
 da_irregular = DA(comm, (64, 32, 32), (2, 2, 2), 1)
-cfd_regular = CompactFiniteDifferenceSolver(da_regular)
-cfd_irregular = CompactFiniteDifferenceSolver(da_irregular)
+line_da_irregular = da_irregular.get_line_DA(0)
+cfd_regular = CompactFiniteDifferenceSolver(line_da_regular)
+cfd_irregular = CompactFiniteDifferenceSolver(line_da_irregular)
 
 def test_dfdx_sine_regular():
     x, y, z = DA_arange(da_regular, (0, 2*np.pi), (0, 2*np.pi), (0, 2*np.pi))
