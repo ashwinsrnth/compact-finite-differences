@@ -13,9 +13,9 @@ class CompactFiniteDifferenceSolver:
 
     def __init__(self, line_da):
         '''
-        :param da: DA object carrying the grid information along
+        :param line_da: DA object carrying the grid information along
             the line
-        :type da: mpi_util.DA
+        :type line_da: gpuDA.DA
         '''
         self.line_da = line_da
         self.init_cu()
