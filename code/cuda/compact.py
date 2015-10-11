@@ -20,21 +20,6 @@ class CompactFiniteDifferenceSolver:
         self.line_da = line_da
         self.init_cu()
         self.init_solvers()
-
-    def _timeit(func):
-        def func_wrapper(self, *args, **kwargs):
-            self.line_da.comm.Barrier()
-            t1 = MPI.Wtime()
-            self.start.record()
-            self.start.synchronize()
-            result = func(self, *args, **kwargs)
-            self.end.record()
-            self.end.synchronize()
-            self.line_da.comm.Barrier()
-            t2 = MPI.Wtime()
-            if self.line_da.rank == 0: print func.__name__, ': ',t2-t1
-            return result 
-        return func_wrapper
         
     def dfdx(self, f_d, dx, x_d, f_local_d):
         '''
