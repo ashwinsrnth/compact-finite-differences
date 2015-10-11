@@ -8,6 +8,7 @@ from near_toeplitz import *
 from reduced import *
 from gpuDA import *
 import time
+from timer import *
 
 class CompactFiniteDifferenceSolver:
 
@@ -37,13 +38,14 @@ class CompactFiniteDifferenceSolver:
         self.solve_primary_system(x_d)
         alpha_d, beta_d = self.solve_reduced_system(x_UH_d, x_LH_d, x_d)
         self.sum_solutions(x_UH_d, x_LH_d, x_d, alpha_d, beta_d)
-
+    
+    @timeit
     def compute_RHS(self, f_d, dx, x_d, f_local_d):
         self.line_da.global_to_local(f_d, f_local_d)
         self.compute_RHS_kernel.prepared_call((self.line_da.nx/8, self.line_da.ny/8, self.line_da.nz/8), (8, 8, 8),
                     f_local_d.gpudata, x_d.gpudata, np.float64(dx),
                         np.int32(self.line_da.rank), np.int32(self.line_da.size))
-
+    @timeit 
     def sum_solutions(self, x_UH_d, x_LH_d, x_R_d, alpha_d, beta_d):
         self.sum_solutions_kernel.prepared_call(
                 (self.line_da.nx/8, self.line_da.ny/8, self.line_da.nz/8),
@@ -53,10 +55,10 @@ class CompactFiniteDifferenceSolver:
                             np.int32(self.line_da.nx),
                             np.int32(self.line_da.ny),
                             np.int32(self.line_da.nz))
-
+    @timeit
     def solve_primary_system(self, x_d):
         self._primary_solver.solve(x_d, [1, 1])
-    
+    @timeit
     def solve_reduced_system(self, x_UH_d, x_LH_d, x_R_d):
         x_UH = x_UH_d.get()
         x_LH = x_LH_d.get()
@@ -118,7 +120,7 @@ class CompactFiniteDifferenceSolver:
         alpha_d = x_R_faces_d[0, :, :]
         beta_d = x_R_faces_d[1, :, :]
         return alpha_d, beta_d
-   
+    @timeit   
     def solve_secondary_systems(self):
         nz, ny, nx = self.line_da.nz, self.line_da.ny, self.line_da.nx
         line_rank = self.line_da.rank
