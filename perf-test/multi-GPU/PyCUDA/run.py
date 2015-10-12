@@ -36,14 +36,20 @@ x_d = da.create_global_vector()
 
 da.comm.Barrier()
 
-for i in range(50):
+
+if rank == 0: print 'Solving a {0} x {1} x {2} system on {3} x {4} x {5} processors'.format(nz*npz,
+        ny*npy, nx*npx, npz, npy, npx)
+if rank == 0: print '------------------------------------------------------'
+
+for i in range(20):
+    if rank == 0: print 'Run {0}'.format(i+1)
     f_d = gpuarray.to_gpu(f)
     da.comm.Barrier()
+    cuda.Context.synchronize()
     t1 = MPI.Wtime()
     cfd.dfdx(f_d, dx, x_d, f_local_d)
     cuda.Context.synchronize()
     da.comm.Barrier()
     t2 = MPI.Wtime()
-    if rank == 0: print 'Total time: ', t2-t1
-    dfdx = x_d.get()
-
+    if rank == 0: print 'Total time for this run: ', t2-t1
+    if rank == 0: print '------------------------------'
