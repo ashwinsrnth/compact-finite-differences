@@ -39,26 +39,16 @@ cfd = NearToeplitzSolver([nz, ny, nx], [1., 2., 1./4, 1., 1./4, 2., 1.])
 start = cuda.Event()
 end = cuda.Event()
 
+print 'Solving a system sized {0} x {1} x {2}'.format(nz, ny, nx)
+print '--------------------------------------'
 for i in range(10):
+    print 'Run ', i+1
     d_d = gpuarray.to_gpu(d)
     start.record()    
     cfd.solve(d_d, [1, 1])
     end.record()
     end.synchronize()
     x = d_d.get()
-    print start.time_till(end)*1e-3
+    print 'Total time for this run: ', start.time_till(end)*1e-3
+    print '--------------------------'
 
-a = np.ones(nx, dtype=np.float64)*(1./4)
-b = np.ones(nx, dtype=np.float64)*(1.)
-c = np.ones(nx, dtype=np.float64)*(1./4)
-a[-1] = 2.
-c[0] = 2.
-
-'''
-x = d_d.get()
-
-for i in range(nz):
-    for j in range(ny):
-        x_true = scipy_solve_banded(a, b, c, d[i, j, :])
-        assert_allclose(x_true, x[i,j,:])
-'''

@@ -1,0 +1,32 @@
+Solving a system sized 512 x 512 x 512
+--------------------------------------
+Run  1
+Total time for this run:  0.146529891968
+--------------------------
+Run  2
+Total time for this run:  0.146219390869
+--------------------------
+Run  3
+Total time for this run:  0.146123397827
+--------------------------
+Run  4
+Total time for this run:  0.145952987671
+--------------------------
+Run  5
+Total time for this run:  0.146115646362
+--------------------------
+Run  6
+Total time for this run:  0.146100967407
+--------------------------
+Run  7
+Total time for this run:  0.146105407715
+--------------------------
+Run  8
+Total time for this run:  0.14607749939
+--------------------------
+Run  9
+Total time for this run:  0.146010757446
+--------------------------
+Run  10
+Total time for this run:  0.14608656311
+--------------------------

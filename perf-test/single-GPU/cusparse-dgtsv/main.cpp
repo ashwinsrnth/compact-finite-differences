@@ -144,8 +144,11 @@ int main(int argc, char **argv)
     cudaMemcpy(b_d, b, nx*sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(c_d, c, nx*sizeof(double), cudaMemcpyHostToDevice);
 
+    printf("Solving a system sized %d x %d x %d\n", nz, ny, nx);
+    printf("-----------------------------------\n");
     for (int i=0; i < 10; i++)
     {
+        printf("Run %d\n", i+1);
         // Call `gtsv` and get the solution
         cudaEventCreate(&start);
         cudaEventCreate(&stop);
@@ -157,18 +160,17 @@ int main(int argc, char **argv)
         cudaMemcpy(d, d_d, nx*ny*nz*sizeof(double), cudaMemcpyDeviceToHost);
 
         if (cusparseStatus == CUSPARSE_STATUS_ALLOC_FAILED) {
-            printf("The resources could not be allocated \n");
+            printf("Error: the resources could not be allocated \n");
+            return 1;
         }
-
 
         cudaEventSynchronize(stop);
         milliseconds = 0;
         cudaEventElapsedTime(&milliseconds, start, stop);
         total_time += milliseconds;
-        printf("%f\n", milliseconds/1000.0);
+        printf("Total time for this run: %f\n", milliseconds/1000.0);
+        printf("--------------------------------------\n");
     }
-    printf("%f\n", (total_time/1000.0)/10.0);
-
     /* Check that the solution is correct */
     // solve_tridiagonal_in_place_reusable(d2, N, a, b, c);
     // printArray(d, N);
