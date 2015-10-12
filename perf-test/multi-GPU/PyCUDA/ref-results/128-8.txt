@@ -1,0 +1,162 @@
+Solving a 128 x 128 x 128 system on 2 x 2 x 2 processors
+------------------------------------------------------
+Run 1
+compute_RHS :  0.0263719558716
+solve_secondary_systems :  0.00104999542236
+solve_primary_system :  0.00111699104309
+solve_reduced_system :  0.00300288200378
+sum_solutions :  0.00040602684021
+Total time for this run:  0.0321831703186
+------------------------------
+Run 2
+compute_RHS :  0.000781059265137
+solve_secondary_systems :  0.00073504447937
+solve_primary_system :  0.00103902816772
+solve_reduced_system :  0.00205016136169
+sum_solutions :  0.000401973724365
+Total time for this run:  0.00517702102661
+------------------------------
+Run 3
+compute_RHS :  0.00080394744873
+solve_secondary_systems :  0.000853061676025
+solve_primary_system :  0.00116610527039
+solve_reduced_system :  0.00234889984131
+sum_solutions :  0.000416994094849
+Total time for this run:  0.00574088096619
+------------------------------
+Run 4
+compute_RHS :  0.000734090805054
+solve_secondary_systems :  0.000886917114258
+solve_primary_system :  0.00110387802124
+solve_reduced_system :  0.00254607200623
+sum_solutions :  0.000398874282837
+Total time for this run:  0.00583910942078
+------------------------------
+Run 5
+compute_RHS :  0.000848054885864
+solve_secondary_systems :  0.000712156295776
+solve_primary_system :  0.00110602378845
+solve_reduced_system :  0.00229597091675
+sum_solutions :  0.000533103942871
+Total time for this run:  0.00564098358154
+------------------------------
+Run 6
+compute_RHS :  0.000722885131836
+solve_secondary_systems :  0.000786781311035
+solve_primary_system :  0.00115609169006
+solve_reduced_system :  0.00270199775696
+sum_solutions :  0.000421047210693
+Total time for this run:  0.00592994689941
+------------------------------
+Run 7
+compute_RHS :  0.000757932662964
+solve_secondary_systems :  0.000761032104492
+solve_primary_system :  0.00110197067261
+solve_reduced_system :  0.00224709510803
+sum_solutions :  0.000397920608521
+Total time for this run:  0.00541210174561
+------------------------------
+Run 8
+compute_RHS :  0.000771999359131
+solve_secondary_systems :  0.000684022903442
+solve_primary_system :  0.00113201141357
+solve_reduced_system :  0.00271606445312
+sum_solutions :  0.000401973724365
+Total time for this run:  0.00585603713989
+------------------------------
+Run 9
+compute_RHS :  0.000777959823608
+solve_secondary_systems :  0.000765085220337
+solve_primary_system :  0.00116086006165
+solve_reduced_system :  0.00199508666992
+sum_solutions :  0.000458955764771
+Total time for this run:  0.00534987449646
+------------------------------
+Run 10
+compute_RHS :  0.000730991363525
+solve_secondary_systems :  0.000679969787598
+solve_primary_system :  0.00109004974365
+solve_reduced_system :  0.00181698799133
+sum_solutions :  0.000493049621582
+Total time for this run:  0.00496912002563
+------------------------------
+Run 11
+compute_RHS :  0.000678062438965
+solve_secondary_systems :  0.000698089599609
+solve_primary_system :  0.000848054885864
+solve_reduced_system :  0.00165987014771
+sum_solutions :  0.000447034835815
+Total time for this run:  0.0044891834259
+------------------------------
+Run 12
+compute_RHS :  0.00137305259705
+solve_secondary_systems :  0.00062084197998
+solve_primary_system :  0.000852108001709
+solve_reduced_system :  0.00159120559692
+sum_solutions :  0.000348806381226
+Total time for this run:  0.00493311882019
+------------------------------
+Run 13
+compute_RHS :  0.00068211555481
+solve_secondary_systems :  0.000890970230103
+solve_primary_system :  0.00116491317749
+solve_reduced_system :  0.00203990936279
+sum_solutions :  0.000452041625977
+Total time for this run:  0.00539588928223
+------------------------------
+Run 14
+compute_RHS :  0.000787019729614
+solve_secondary_systems :  0.000727891921997
+solve_primary_system :  0.00111508369446
+solve_reduced_system :  0.00288081169128
+sum_solutions :  0.000412225723267
+Total time for this run:  0.00607800483704
+------------------------------
+Run 15
+compute_RHS :  0.00070595741272
+solve_secondary_systems :  0.000687122344971
+solve_primary_system :  0.00112104415894
+solve_reduced_system :  0.00173187255859
+sum_solutions :  0.000369787216187
+Total time for this run:  0.00477600097656
+------------------------------
+Run 16
+compute_RHS :  0.00081992149353
+solve_secondary_systems :  0.000751972198486
+solve_primary_system :  0.000850915908813
+solve_reduced_system :  0.00199198722839
+sum_solutions :  0.000619888305664
+Total time for this run:  0.00519013404846
+------------------------------
+Run 17
+compute_RHS :  0.000738143920898
+solve_secondary_systems :  0.000699043273926
+solve_primary_system :  0.00107312202454
+solve_reduced_system :  0.00160908699036
+sum_solutions :  0.000608921051025
+Total time for this run:  0.00489807128906
+------------------------------
+Run 18
+compute_RHS :  0.000679969787598
+solve_secondary_systems :  0.000725984573364
+solve_primary_system :  0.000848054885864
+solve_reduced_system :  0.00198602676392
+sum_solutions :  0.000378847122192
+Total time for this run:  0.00479006767273
+------------------------------
+Run 19
+compute_RHS :  0.00122594833374
+solve_secondary_systems :  0.000614881515503
+solve_primary_system :  0.000849008560181
+solve_reduced_system :  0.00156998634338
+sum_solutions :  0.000393867492676
+Total time for this run:  0.00483679771423
+------------------------------
+Run 20
+compute_RHS :  0.000805139541626
+solve_secondary_systems :  0.000738859176636
+solve_primary_system :  0.00106692314148
+solve_reduced_system :  0.00163292884827
+sum_solutions :  0.00049614906311
+Total time for this run:  0.00488710403442
+------------------------------
