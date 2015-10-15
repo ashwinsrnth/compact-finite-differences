@@ -2,6 +2,7 @@ import pycuda.gpuarray as gpuarray
 import pycuda.driver as cuda
 import numpy as np
 import kernels
+import os
 
 '''
 A tridiagonal solver for solving
@@ -66,7 +67,8 @@ class NearToeplitzSolver:
         self.k1_first_d = gpuarray.to_gpu(k1_first)
         self.k1_last_d = gpuarray.to_gpu(k1_last)
         
-        self.forward_reduction, self.back_substitution = kernels.get_funcs('kernels.cu',
+        self.forward_reduction, self.back_substitution = kernels.get_funcs(
+                os.path.dirname(os.path.realpath(__file__)) + '/' + 'kernels.cu',
                 'globalForwardReduction', 'globalBackSubstitution')
         
         self.forward_reduction.prepare([
@@ -79,7 +81,7 @@ class NearToeplitzSolver:
                         np.float64,
                             np.intc, np.intc, np.intc, np.intc])
 
-    def solve(self, x_d, block_sizes):
+    def solve(self, x_d, block_sizes=(1, 1)):
 
         '''
             Solve the tridiagonal system

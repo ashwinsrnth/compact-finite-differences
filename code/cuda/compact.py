@@ -4,7 +4,7 @@ import pycuda.gpuarray as gpuarray
 import numpy as np
 from scipy.linalg import solve_banded
 import kernels
-from near_toeplitz.near_toeplitz import *
+from solvers.templated.near_toeplitz import *
 from reduced import *
 from gpuDA import *
 import time
@@ -57,7 +57,7 @@ class CompactFiniteDifferenceSolver:
                             np.int32(self.line_da.nz))
     @timeit
     def solve_primary_system(self, x_d):
-        self._primary_solver.solve(x_d, [1, 1])
+        self._primary_solver.solve(x_d)
     @timeit
     def solve_reduced_system(self, x_UH_d, x_LH_d, x_R_d):
         x_UH = x_UH_d.get()

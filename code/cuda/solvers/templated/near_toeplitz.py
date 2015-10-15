@@ -2,6 +2,7 @@ import pycuda.gpuarray as gpuarray
 import pycuda.driver as cuda
 import numpy as np
 import kernels
+import os
 
 '''
 A tridiagonal solver for solving
@@ -65,21 +66,14 @@ class NearToeplitzSolver:
         self.b_first_d = gpuarray.to_gpu(b_first)
         self.k1_first_d = gpuarray.to_gpu(k1_first)
         self.k1_last_d = gpuarray.to_gpu(k1_last)
-        
-        self.forward_reduction, self.back_substitution = kernels.get_funcs('kernels.cu',
-                'globalForwardReduction', 'globalBackSubstitution')
-        
-        self.forward_reduction.prepare([
-                np.intp, np.intp, np.intp, np.intp,
-                    np.intp, np.intp, np.intp, np.intp, np.intp,
-                        np.intc, np.intc, np.intc, np.intc])
-        self.back_substitution.prepare([
-                np.intp, np.intp, np.intp, np.intp, np.intp,
-                    np.float64, np.float64, np.float64, np.float64,
-                        np.float64,
-                            np.intc, np.intc, np.intc, np.intc])
 
-    def solve(self, x_d, block_sizes):
+        thisdir = os.path.dirname(os.path.realpath(__file__))
+        kernels.render_kernel(thisdir + '/' + 'kernels.jinja2', 
+                thisdir + '/' + 'kernels.cugen', nx=self.nx, ny=self.ny, nz=self.nz, bx=self.nx/2, by=1)
+        self.cyclic_reduction, = kernels.get_funcs(thisdir + '/' + 'kernels.cugen', 'sharedMemCyclicReduction') 
+        self.cyclic_reduction.prepare('PPPPPPPPPddddd')
+        
+    def solve(self, x_d):
 
         '''
             Solve the tridiagonal system
@@ -90,29 +84,25 @@ class NearToeplitzSolver:
             ai, bi, ci,
                 an, bn] = self.coeffs
 
-        (bz, by) = block_sizes
-
         # CR algorithm
         # ============================================
-                
-        stride = 1
-        for i in np.arange(int(np.log2(self.nx))):
-            stride *= 2
-            self.forward_reduction.prepared_call((1, self.ny/by, self.nz/bz), (self.nx/stride, by, bz),
-                self.a_d.gpudata, self.b_d.gpudata, self.c_d.gpudata, x_d.gpudata, self.k1_d.gpudata, self.k2_d.gpudata,
-                    self.b_first_d.gpudata, self.k1_first_d.gpudata, self.k1_last_d.gpudata,
-                        np.int32(self.nx), np.int32(self.ny), np.int32(self.nz),
-                            np.int32(stride))
-        # `stride` is now equal to `nx`
-        for i in np.arange(int(np.log2(self.nx))-1):
-            stride /= 2
-            self.back_substitution.prepared_call((1, self.ny/by, self.nz/bz), (self.nx/stride, by, bz),
-                self.a_d.gpudata, self.b_d.gpudata, self.c_d.gpudata, x_d.gpudata, self.b_first_d.gpudata,
-                    np.float64(b1), np.float64(c1),
-                        np.float64(ai), np.float64(bi), np.float64(ci),
-                            np.int32(self.nx), np.int32(self.ny), np.int32(self.nz),
-                                np.int32(stride))
-       # ============================================
+        self.cyclic_reduction.prepared_call(
+                 (1, self.ny, self.nz),
+                 (self.nx/2, 1, 1),
+                 self.a_d.gpudata,
+                 self.b_d.gpudata,
+                 self.c_d.gpudata,
+                 x_d.gpudata,
+                 self.k1_d.gpudata,
+                 self.k2_d.gpudata,
+                 self.b_first_d.gpudata,
+                 self.k1_first_d.gpudata,
+                 self.k1_last_d.gpudata,
+                 b1,
+                 c1,
+                 ai,
+                 bi,
+                 ci)
 
 def _precompute_coefficients(system_size, coeffs):
     '''
@@ -190,4 +180,3 @@ def _precompute_coefficients(system_size, coeffs):
     b[-1] = b_last
 
     return a, b, c, k1, k2, b_first, k1_first, k1_last
-
