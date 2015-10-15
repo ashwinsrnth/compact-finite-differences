@@ -22,7 +22,7 @@ dz = z[1, 0, 0] - z[0, 0, 0]
 dy = y[0, 1, 0] - y[0, 0, 0]
 dx = x[0, 0, 1] - x[0, 0, 0]
 
-cfd = CompactFiniteDifferenceSolver(line_da)
+cfd = CompactFiniteDifferenceSolver(line_da, 'templated')
 
 f_d = gpuarray.to_gpu(f)
 x_d = da.create_global_vector()

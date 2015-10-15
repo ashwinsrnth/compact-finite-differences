@@ -15,6 +15,9 @@ from numpy.testing import *
 args = sys.argv
 nz, ny, nx = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
 npz, npy, npx = int(sys.argv[4]), int(sys.argv[5]), int(sys.argv[6])
+solver = sys.argv[7]
+
+assert (solver == 'globalmem' or solver == 'templated')
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -28,7 +31,7 @@ dfdx_true = -(x*y)*np.sin(x*y) + np.cos(x*y)
 
 dx = x[0, 0, 1] - x[0, 0, 0]
 
-cfd = CompactFiniteDifferenceSolver(line_da)
+cfd = CompactFiniteDifferenceSolver(line_da, solver)
 
 f_d = gpuarray.to_gpu(f)
 f_local_d = da.create_local_vector()

@@ -1,5 +1,6 @@
 import numpy as np
 import kernels
+import os
 
 class ReducedSolver:
     def __init__(self, shape):
@@ -7,7 +8,8 @@ class ReducedSolver:
         Create context for pThomas (thread-parallel Thomas algorithm)
         '''
         self.nz, self.ny, self.nx = shape 
-        self.solver, = kernels.get_funcs('kernels.cu', 'reducedSolverKernel')
+        thisdir = os.path.dirname(os.path.realpath(__file__))
+        self.solver, = kernels.get_funcs(thisdir + '/' + 'kernels.cu', 'reducedSolverKernel')
         self.solver.prepare([np.intp, np.intp, np.intp, np.intp, np.intp, np.intc, np.intc, np.intc])
 
     def solve(self, a_d, b_d, c_d, c2_d, x_d):

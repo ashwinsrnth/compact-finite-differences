@@ -3,25 +3,29 @@ import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
 import numpy as np
 from scipy.linalg import solve_banded
-import kernels
-from solvers.templated.near_toeplitz import *
-from reduced import *
 from gpuDA import *
+import os
 import time
 from timer import *
 
+import kernels
+from reduced import *
+import solvers.globalmem.near_toeplitz
+import solvers.templated.near_toeplitz
+
 class CompactFiniteDifferenceSolver:
 
-    def __init__(self, line_da):
+    def __init__(self, line_da, solver='templated'):
         '''
         :param line_da: DA object carrying the grid information along
             the line
         :type line_da: gpuDA.DA
         '''
         self.line_da = line_da
+        self.solver = solver
         self.init_cu()
         self.init_solvers()
-        
+
     def dfdx(self, f_d, dx, x_d, f_local_d):
         '''
         :param f_d: The 3-d array with function values
@@ -160,18 +164,21 @@ class CompactFiniteDifferenceSolver:
             coeffs[1] = 2.
         if line_rank == line_size-1:
             coeffs[-2] = 2.
-        return NearToeplitzSolver((self.line_da.nz, self.line_da.ny, self.line_da.nx), coeffs)
-
+        
+        if self.solver == 'globalmem':
+            return solvers.globalmem.near_toeplitz.NearToeplitzSolver(
+                    (self.line_da.nz, self.line_da.ny, self.line_da.nx), coeffs)
+        else:
+            return solvers.templated.near_toeplitz.NearToeplitzSolver(
+                    (self.line_da.nz, self.line_da.ny, self.line_da.nx), coeffs)
+        
     def init_cu(self):
+        thisdir = os.path.dirname(os.path.realpath(__file__))
         self.compute_RHS_kernel, self.sum_solutions_kernel, self.copy_faces_kernel, = kernels.get_funcs(
-                'kernels.cu', 'computeRHS', 'sumSolutions', 'negateAndCopyFaces')
-        self.compute_RHS_kernel.prepare([np.intp, np.intp, np.float64, np.intc, np.intc])
-        self.sum_solutions_kernel.prepare([np.intp, np.intp,
-                np.intp, np.intp, np.intp,
-                    np.intc, np.intc, np.intc])
-        self.copy_faces_kernel.prepare([np.intp, np.intp,
-            np.intc, np.intc, np.intc, np.intc, np.intc])
-
+                thisdir + '/' + 'kernels.cu', 'computeRHS', 'sumSolutions', 'negateAndCopyFaces')
+        self.compute_RHS_kernel.prepare('PPdii')
+        self.sum_solutions_kernel.prepare('PPPPPiii')
+        self.copy_faces_kernel.prepare('PPiiiii')
         self.start = cuda.Event()
         self.end = cuda.Event()
 

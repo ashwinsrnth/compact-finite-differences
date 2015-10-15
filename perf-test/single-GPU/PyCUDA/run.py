@@ -4,7 +4,6 @@ import pycuda.gpuarray as gpuarray
 import numpy as np
 import sys
 sys.path.append('../../../code/cuda')
-from near_toeplitz import *
 from scipy.linalg import solve_banded
 from numpy.testing import assert_allclose
 import time
@@ -29,6 +28,12 @@ args = sys.argv
 nx = int(args[1])
 ny = int(args[2])
 nz = int(args[3])
+solver = args[4]
+
+if solver == 'globalmem':
+    from solvers.globalmem.near_toeplitz import *
+elif solver == 'templated':
+    from solvers.templated.near_toeplitz import *
 
 # generate the coefficient arrays and right-hand-side
 d = np.ones([nz, ny, nx], dtype=np.float64)
@@ -47,7 +52,7 @@ for i in range(5):
     print 'Run ', i+1
     #d_d = gpuarray.to_gpu(d)
     start.record()    
-    cfd.solve(d_d, [1, 1])
+    cfd.solve(d_d)
     end.record()
     end.synchronize()
     #x = d_d.get()
