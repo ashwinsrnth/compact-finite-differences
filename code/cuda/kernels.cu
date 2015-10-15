@@ -144,40 +144,6 @@ __global__ void reducedSolverKernel(double *a_d,
     }
 }
 
-__global__ void pThomasKernel( double *a_d,
-                                 double *b_d,
-                                 double *c_d,
-                                 double *c2_d,
-                                 double *d_d,
-                                int block_size)
-{
-    /*
-    Solves many small tridiagonal systems
-    using a pThomas (thread-parallel Thomas algorithm)
-    */
-
-    int gid = blockIdx.x*blockDim.x + threadIdx.x;
-    int block_start = gid*block_size;
-    double bmac;
-
-    /* do a serial TDMA on the local system */
-
-    c2_d[0] = c_d[0]/b_d[0]; // we need c2_d, because every thread will overwrite c_d[0] otherwise
-    d_d[block_start] = d_d[block_start]/b_d[0];
-
-    for (int i=1; i<block_size; i++)
-    {
-        bmac = b_d[i] - a_d[i]*c2_d[i-1];
-        c2_d[i] = c_d[i]/bmac;
-        d_d[block_start+i] = (d_d[block_start+i] - a_d[i]*d_d[block_start+i-1])/bmac;
-    }
-
-    for (int i=block_size-2; i >= 0; i--)
-    {
-        d_d[block_start+i] = d_d[block_start+i] - c2_d[i]*d_d[block_start+i+1];
-    }
-}
-
 __global__ void globalForwardReduction(const double *a_d,
                                 const double *b_d,
                                 const double *c_d,
@@ -281,6 +247,7 @@ __global__ void globalBackSubstitution(const double *a_d,
     }
     else
     {
+        // rint rounds to the nearest integer
         idx = rint(log2((double)stride)) - 2;
         if (gix == 0) 
         {   

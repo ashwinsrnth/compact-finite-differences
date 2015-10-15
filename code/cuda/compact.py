@@ -4,7 +4,7 @@ import pycuda.gpuarray as gpuarray
 import numpy as np
 from scipy.linalg import solve_banded
 import kernels
-from near_toeplitz import *
+from near_toeplitz.near_toeplitz import *
 from reduced import *
 from gpuDA import *
 import time

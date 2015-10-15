@@ -37,6 +37,6 @@ DA_gather_blocks(da, dfdx, dfdx_global)
 DA_gather_blocks(da, dfdx_true, dfdx_true_global)
 
 if comm.Get_rank() == 0:
-    plt.plot(np.linspace(0, 2*np.pi, 2*nx), dfdx_global[nz*npz/2, ny*npy/2, :], '-', linewidth=5)
-    plt.plot(np.linspace(0, 2*np.pi, 2*nx), dfdx_true_global[nz*npz/2, ny*npy/2, :], '--', linewidth=4)
+    plt.plot(np.linspace(0, 2*np.pi, npx*nx), dfdx_global[nz*npz/2, ny*npy/2, :], '-', linewidth=5)
+    plt.plot(np.linspace(0, 2*np.pi, npx*nx), dfdx_true_global[nz*npz/2, ny*npy/2, :], '--', linewidth=4)
     plt.savefig('demo.png')
