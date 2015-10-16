@@ -1,6 +1,10 @@
 
-for size in 32 64 256 512
+for solver in globalmem templated
 do
-    outfile=results/$size.txt
-    python run.py $size $size $size > $outfile
+    for size in 32 64 128 256 512
+    do
+        outfile=results/$solver/$size.txt
+        echo python run.py $size $size $size $solver
+        python run.py $size $size $size $solver > $outfile
+    done
 done

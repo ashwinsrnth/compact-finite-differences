@@ -3,6 +3,7 @@ import pycuda.driver as cuda
 import numpy as np
 import kernels
 import os
+import time
 
 '''
 A tridiagonal solver for solving
@@ -70,9 +71,10 @@ class NearToeplitzSolver:
         thisdir = os.path.dirname(os.path.realpath(__file__))
         kernels.render_kernel(thisdir + '/' + 'kernels.jinja2', 
                 thisdir + '/' + 'kernels.cugen', nx=self.nx, ny=self.ny, nz=self.nz, bx=self.nx/2, by=1)
+        time.sleep(5)
         self.cyclic_reduction, = kernels.get_funcs(thisdir + '/' + 'kernels.cugen', 'sharedMemCyclicReduction') 
         self.cyclic_reduction.prepare('PPPPPPPPPddddd')
-        
+
     def solve(self, x_d):
 
         '''
