@@ -63,7 +63,7 @@ class NearToeplitzSolver:
         assert np.int(np.log2(self.nx)) == np.log2(self.nx)
 
         # compute coefficients a, b, etc.,
-        a, b, c, k1, k2, b_first, k1_first, k1_last = self._precompute_coefficients(self.nx, self.coeffs)
+        a, b, c, k1, k2, b_first, k1_first, k1_last = self._precompute_coefficients()
         
 
         self.a_d = cl_array.to_device(queue, a)
@@ -117,7 +117,7 @@ class NearToeplitzSolver:
         # ============================================
     
 
-    def _precompute_coefficients(self, system_size, coeffs):
+    def _precompute_coefficients(self):
         '''
         The a, b, c, k1, k2
         used in the Cyclic Reduction Algorithm can be
@@ -142,6 +142,8 @@ class NearToeplitzSolver:
         -- See the paper
         "Fast Tridiagonal Solvers on the GPU"
         '''
+        system_size = self.nx
+
         # these arrays technically have length 1 more than required:
         log2_system_size = int(np.log2(system_size))
 
@@ -157,7 +159,7 @@ class NearToeplitzSolver:
 
         [b1, c1,
             ai, bi, ci,
-                an, bn] = coeffs
+                an, bn] = self.coeffs
 
         num_reductions = log2_system_size - 1
         for i in range(num_reductions):
