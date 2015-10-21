@@ -4,3 +4,4 @@
 *.svg
 *run
 *.o
+*results/
